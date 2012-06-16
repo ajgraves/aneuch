@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 ## $Id$
-## This is Aneuch, which means 'enough.' I hope this wiki is enough for you.
+## **********************************************************************
 ## Copyright (c) 2012, Aaron J. Graves (cajunman4life@gmail.com)
 ## All rights reserved.
 ##
@@ -24,11 +24,16 @@
 ## CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
 ## ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
 ## POSSIBILITY OF SUCH DAMAGE.
+## **********************************************************************
+## This is Aneuch, which means 'enough.' I hope this wiki is enough for you.
+## **********************************************************************
 package Aneuch;
-
+use strict;
 # Some variables
 use vars qw($DataDir $SiteName $Page $ShortPage @Passwords $PageDir $ArchiveDir
-$ShortUrl $SiteMode $ScriptName $ShortScriptName $Header $Footer);
+$ShortUrl $SiteMode $ScriptName $ShortScriptName $Header $Footer $PluginDir 
+$Url $DiscussText $DiscussPrefix $DiscussLink $DefaultPage $CookieName 
+$PageName %FORM);
 my %srvr = (
   80 => 'http://',
   443 => 'https://',
@@ -47,7 +52,7 @@ if(-f "config.pl") {
 
 # Define settings
 $DataDir = '/tmp/aneuch' unless $DataDir;	# Location of docs
-$myd = $ENV{'DOCUMENT_ROOT'} . "/";		# Local location
+#$myd = $ENV{'DOCUMENT_ROOT'} . "/";		# Local location
 $DefaultPage = 'HomePage' unless $DefaultPage;	# Default page
 @Passwords = qw() unless @Passwords;		# No password by default
 $SiteMode = 0 unless $SiteMode;		# 0=All, 1=Discus only, 2=None
@@ -281,14 +286,15 @@ sub DoAdmin {
 }
 
 sub ReadIn {
+  my $buffer;
   if($ENV{'REQUEST_METHOD'} ne "POST") { return 0; }
   read(STDIN, $buffer, $ENV{'CONTENT_LENGTH'});
   if ($buffer eq "") {
     return 0;
   }
-  @pairs = split(/&/, $buffer);
-  foreach $pair (@pairs) {
-    ($name, $value) = split(/=/, $pair);
+  my @pairs = split(/&/, $buffer);
+  foreach my $pair (@pairs) {
+    my ($name, $value) = split(/=/, $pair);
     $value =~ tr/+/ /;
     $value =~ s/%([a-fA-F0-9][a-fA-F0-9])/pack("C", hex($1))/eg;
     $FORM{$name} = $value;
