@@ -423,10 +423,10 @@ pre { border:0; font-size:10pt; }
 <a href="$DiscussLink">$DiscussText</a> 
 <a title="Click to edit this page" rel="nofollow" href="$ShortUrl:edit/$ShortPage">Edit $PageName</a> 
 <a title="Click here to see revision history" rel="nofollow" href="$ShortUrl:history/$ShortPage">View Revisions</a> 
-<a title="Administration options" rel="nofollow" href="$ShortUrl:admin">Admin</a>
+<a title="Administration options" rel="nofollow" href="$ShortUrl:admin">Admin</a><span style="float:right;"><strong>$SiteName</strong>
+is powered by <em>Aneuch</em>.</span>
 <span class="time"><br/>
 $EditString</span>
 </div>
-<div style="float:right;"><p><em>Aneuch</em></p></div>
 </body>
 </html>
