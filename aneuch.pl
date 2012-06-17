@@ -44,6 +44,12 @@ my %commandtitle = (
   ':search' => "Search $ShortPage",
   ':history' => "History for $ShortPage",
 );
+my %CommandLinks = (
+  'admin' => '?admin',
+  'edit' => '?edit=',
+  'search' => '?search=',
+  'history' => '?history=',
+);
 
 # Subs
 sub InitConfig  {
@@ -74,10 +80,11 @@ sub InitVars {
   $Page = $ENV{'REQUEST_URI'};	# Should be the page
   $Page =~ s!^/!!;		# Remove leading slash, if it exists
   $Page =~ s!\.{2,}!!g;		# Remove every instance of double period
-  if($Page =~ m/^:/) {		# We're getting a command directive
-    my @tc = split("/", $Page);	# Surely there's a better way...
+  if($Page =~ m/^.*=.*$/) {		# We're getting a command directive
+    my @tc = split("=", $Page);	# Surely there's a better way...
     $command = shift @tc;
     $Page = join("/", @tc);
+    $command =~ s/^\?//;	# Get rid of '?', if it's there.
   }
   if($Page eq "") { $Page = $DefaultPage };	# Default if blank
   $Page =~ s/\.[a-z]{3,4}$/.txt/;		# If extension, change to .txt
@@ -339,10 +346,10 @@ sub DoRequest {
   
   # This is where the magic happens
   if($command) {                          # Command directive?
-    if($command eq ":edit") {             # Edit file
+    if($command eq 'edit') {             # Edit file
       EditDisplay;
     }
-    if($command eq ":admin") {
+    if($command eq 'admin') {
       DoAdmin;
     }
   } else {
@@ -370,7 +377,7 @@ __DATA__
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml"><head>
 <title>$SiteName: $PageName</title>
-<link rel="alternate" type="application/wiki" title="Edit this page" href="$Url:edit/$ShortPage" />
+<link rel="alternate" type="application/wiki" title="Edit this page" href="$Url?edit=$ShortPage" />
 <meta name="robots" content="INDEX,FOLLOW" />
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
 <style type="text/css">
@@ -445,7 +452,7 @@ pre { border:0; font-size:10pt; }
 </head>
 <body>
 <div class="header"><a href="$Url$DefaultPage">$DefaultPage</a> $Navbar
-<h1><a title="Search for references to $ShortPage" rel="nofollow" href="$ShortUrl:search/$ShortPage">$PageName</a></h1></div>
+<h1><a title="Search for references to $ShortPage" rel="nofollow" href="$ShortUrl?search=$ShortPage">$PageName</a></h1></div>
 <div class="wrapper">
 !!CONTENT!!
 </div>
@@ -453,9 +460,9 @@ pre { border:0; font-size:10pt; }
 <div class="footer">
 <hr/>
 $DiscussText
-<a title="Click to edit this page" rel="nofollow" href="$ShortUrl:edit/$ShortPage">Edit $PageName</a> 
-<a title="Click here to see revision history" rel="nofollow" href="$ShortUrl:history/$ShortPage">View Revisions</a> 
-<a title="Administration options" rel="nofollow" href="$ShortUrl:admin">Admin</a><span style="float:right;"><strong>$SiteName</strong>
+<a title="Click to edit this page" rel="nofollow" href="$ShortUrl?edit=$ShortPage">Edit $PageName</a> 
+<a title="Click here to see revision history" rel="nofollow" href="$ShortUrl?history=$ShortPage">View Revisions</a> 
+<a title="Administration options" rel="nofollow" href="$ShortUrl?admin">Admin</a><span style="float:right;"><strong>$SiteName</strong>
 is powered by <em>Aneuch</em>.</span>
 <span class="time"><br/>
 $EditString</span>
