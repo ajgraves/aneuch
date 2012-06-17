@@ -33,7 +33,7 @@ use strict;
 use vars qw($DataDir $SiteName $Page $ShortPage @Passwords $PageDir $ArchiveDir
 $ShortUrl $SiteMode $ScriptName $ShortScriptName $Header $Footer $PluginDir 
 $Url $DiscussText $DiscussPrefix $DiscussLink $DefaultPage $CookieName 
-$PageName %FORM $TempDir @Errors);
+$PageName %FORM $TempDir @Errors $command $contents);
 my %srvr = (
   80 => 'http://',
   443 => 'https://',
@@ -45,66 +45,75 @@ my %commandtitle = (
   ':history' => "History for $ShortPage",
 );
 
-# Import settings
-if(-f "config.pl") {
-  do 'config.pl';
-}
-
-# Define settings
-$DataDir = '/tmp/aneuch' unless $DataDir;	# Location of docs
-#$myd = $ENV{'DOCUMENT_ROOT'} . "/";		# Local location
-$DefaultPage = 'HomePage' unless $DefaultPage;	# Default page
-@Passwords = qw() unless @Passwords;		# No password by default
-$SiteMode = 0 unless $SiteMode;		# 0=All, 1=Discus only, 2=None
-$DiscussPrefix = 'Discuss_' unless $DiscussPrefix; # Discussion page prefix
-$SiteName = 'Aneuch' unless $SiteName;		# Default site name
-$CookieName = 'Aneuch' unless $CookieName;	# Default cookie name
-
-# Some cleanup
-#  Remove trailing slash from $DataDir, if it exists
-$DataDir =~ s!/\z!!;
-
-# Local variables declared
-my ($command, $contents);
-
-# Get page name that is being requested
-$Page = $ENV{'REQUEST_URI'};	# Should be the page
-$Page =~ s!^/!!;		# Remove leading slash, if it exists
-$Page =~ s!\.{2,}!!g;		# Remove every instance of double period
-if($Page =~ m/^:/) {		# We're getting a command directive
-  my @tc = split("/", $Page);	# Surely there's a better way...
-  $command = shift @tc;
-  $Page = join("/", @tc);
-}
-if($Page eq "") { $Page = $DefaultPage };	# Default if blank
-$Page =~ s/\.[a-z]{3,4}$/.txt/;			# If extension, change to .txt
-if($Page !~ m/\.[a-z]{3}$/) { $Page .= ".txt"; }	# If none, default
-$ShortPage = $Page;			# ShortPage is Page sans extension
-$ShortPage =~ s/\.[a-z]{3,4}$//;
-$PageName = $ShortPage;			# PageName is ShortPage with spaces
-$PageName =~ s/_/ /g;
-
-# Discuss links
-if($ShortPage !~ m/^$DiscussPrefix/) {
-  $DiscussLink = $ShortUrl . $DiscussPrefix . $ShortPage;
-  $DiscussText = $DiscussPrefix . $ShortPage;
-  $DiscussText =~ s/_/ /g;
-  $DiscussText = '<a href="' . $DiscussLink . '">' . $DiscussText . '</a>';
-}
-
-# Figure out the script name, URL, etc.
-$ShortUrl = $ENV{'SCRIPT_NAME'};
-$ShortUrl =~ s/$0//;
-$Url = $srvr{$ENV{'SERVER_PORT'}} . $ENV{'HTTP_HOST'} . $ShortUrl;
-$ScriptName = $ENV{'SCRIPT_NAME'};
-$ShortScriptName = $0;
-
-# If we're a command, change the page title
-if($command) {
-  #$PageName = $commandtitle{$command};
-}
-
 # Subs
+sub InitConfig  {
+  if(-f "config.pl") {
+    do 'config.pl';
+  }
+}
+
+sub InitVars {
+  # Define settings
+  $DataDir = '/tmp/aneuch' unless $DataDir;	# Location of docs
+  #$myd = $ENV{'DOCUMENT_ROOT'} . "/";		# Local location
+  $DefaultPage = 'HomePage' unless $DefaultPage;	# Default page
+  @Passwords = qw() unless @Passwords;		# No password by default
+  $SiteMode = 0 unless $SiteMode;		# 0=All, 1=Discus only, 2=None
+  $DiscussPrefix = 'Discuss_' unless $DiscussPrefix; # Discussion page prefix
+  $SiteName = 'Aneuch' unless $SiteName;		# Default site name
+  $CookieName = 'Aneuch' unless $CookieName;	# Default cookie name
+
+  # Some cleanup
+  #  Remove trailing slash from $DataDir, if it exists
+  $DataDir =~ s!/\z!!;
+
+  # Local variables declared
+  #my ($command, $contents);
+
+  # Get page name that is being requested
+  $Page = $ENV{'REQUEST_URI'};	# Should be the page
+  $Page =~ s!^/!!;		# Remove leading slash, if it exists
+  $Page =~ s!\.{2,}!!g;		# Remove every instance of double period
+  if($Page =~ m/^:/) {		# We're getting a command directive
+    my @tc = split("/", $Page);	# Surely there's a better way...
+    $command = shift @tc;
+    $Page = join("/", @tc);
+  }
+  if($Page eq "") { $Page = $DefaultPage };	# Default if blank
+  $Page =~ s/\.[a-z]{3,4}$/.txt/;		# If extension, change to .txt
+  if($Page !~ m/\.[a-z]{3}$/) { $Page .= ".txt"; }	# If none, default
+  $ShortPage = $Page;			# ShortPage is Page sans extension
+  $ShortPage =~ s/\.[a-z]{3,4}$//;
+  $PageName = $ShortPage;		# PageName is ShortPage with spaces
+  $PageName =~ s/_/ /g;
+
+  # Discuss links
+  if($ShortPage !~ m/^$DiscussPrefix/) {
+    $DiscussLink = $ShortUrl . $DiscussPrefix . $ShortPage;
+    $DiscussText = $DiscussPrefix . $ShortPage;
+    $DiscussText =~ s/_/ /g;
+    $DiscussText = '<a href="' . $DiscussLink . '">' . $DiscussText . '</a>';
+  } else {
+    $DiscussLink = $ShortPage;
+    $DiscussLink =~ s/^$DiscussPrefix//;
+    $DiscussText = $DiscussLink;
+    $DiscussLink = $ShortUrl . $DiscussLink;
+    $DiscussText = '<a href="' . $DiscussLink . '">' . $DiscussText . '</a>';
+  }
+
+  # Figure out the script name, URL, etc.
+  $ShortUrl = $ENV{'SCRIPT_NAME'};
+  $ShortUrl =~ s/$0//;
+  $Url = $srvr{$ENV{'SERVER_PORT'}} . $ENV{'HTTP_HOST'} . $ShortUrl;
+  $ScriptName = $ENV{'SCRIPT_NAME'};
+  $ShortScriptName = $0;
+
+  # If we're a command, change the page title
+  if($command) {
+    #$PageName = $commandtitle{$command};
+  }
+}
+
 sub InitTemplate {
   # If we don't have $Header or $Footer, use the built-in
   if(!defined($Header) and !defined($Footer)) {
@@ -314,6 +323,8 @@ sub ReadIn {
 }
 
 sub Init {
+  InitConfig;
+  InitVars;
   InitDirs;
   LoadPlugins;
   InitTemplate;
@@ -336,7 +347,7 @@ sub DoRequest {
     }
   } else {
     if(! -f "$PageDir/$Page") {
-      print '<p>Page does not exist. You could <a href="' . $ShortUrl . ':edit/' . $ShortPage . '">create it</a>.</p>';
+      print '<p>It appears that there is nothing here.</p>';
     } else {
       if(exists &Markup) {                # If there's markup defined, do markup
         print join("\n", Markup(GetFile($PageDir, $Page)));
@@ -416,6 +427,10 @@ a.external:hover {
   background-color:red;
 }
 
+textarea {
+  width: 100%;
+}
+
 @media print {
 body { font:11pt "Neep", "Arial", sans-serif; }
 a, a:link, a:visited { color:#000; text-decoration:none; font-style:oblique; font-weight:normal; }
@@ -429,7 +444,7 @@ pre { border:0; font-size:10pt; }
 </style>
 </head>
 <body>
-<div class="header"><a href="$Url$DefaultPage">$DefaultPage</a> $NAVBAR
+<div class="header"><a href="$Url$DefaultPage">$DefaultPage</a> $Navbar
 <h1><a title="Search for references to $ShortPage" rel="nofollow" href="$ShortUrl:search/$ShortPage">$PageName</a></h1></div>
 <div class="wrapper">
 !!CONTENT!!
