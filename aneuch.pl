@@ -33,16 +33,16 @@ use strict;
 use vars qw($DataDir $SiteName $Page $ShortPage @Passwords $PageDir $ArchiveDir
 $ShortUrl $SiteMode $ScriptName $ShortScriptName $Header $Footer $PluginDir 
 $Url $DiscussText $DiscussPrefix $DiscussLink $DefaultPage $CookieName 
-$PageName %FORM);
+$PageName %FORM $TempDir @Errors);
 my %srvr = (
   80 => 'http://',
   443 => 'https://',
 );
 my %commandtitle = (
   ':admin' => 'Administration',
-  ':edit' => 'Edit ' . $ShortPage,
-  ':search' => 'Search ' . $ShortPage,
-  ':history' => 'History for ' . $ShortPage,
+  ':edit' => "Edit $ShortPage",
+  ':search' => "Search $ShortPage",
+  ':history' => "History for $ShortPage",
 );
 
 # Import settings
@@ -85,9 +85,12 @@ $PageName = $ShortPage;			# PageName is ShortPage with spaces
 $PageName =~ s/_/ /g;
 
 # Discuss links
-$DiscussLink = $ShortUrl . $DiscussPrefix . $ShortPage;
-$DiscussText = $DiscussPrefix . $ShortPage;
-$DiscussText =~ s/_/ /g;
+if($ShortPage !~ m/^$DiscussPrefix/) {
+  $DiscussLink = $ShortUrl . $DiscussPrefix . $ShortPage;
+  $DiscussText = $DiscussPrefix . $ShortPage;
+  $DiscussText =~ s/_/ /g;
+  $DiscussText = '<a href="' . $DiscussLink . '">' . $DiscussText . '</a>';
+}
 
 # Figure out the script name, URL, etc.
 $ShortUrl = $ENV{'SCRIPT_NAME'};
@@ -101,13 +104,15 @@ if($command) {
   #$PageName = $commandtitle{$command};
 }
 
-# If we don't have $Header or $Footer, use the built-in
-if((!defined($Header)) && (!defined($Footer))) {
-  my @TEMPLATE = <DATA>;
-  ($Header, $Footer) = split(/!!CONTENT!!/, join("\n", @TEMPLATE));
+# Subs
+sub InitTemplate {
+  # If we don't have $Header or $Footer, use the built-in
+  if(!defined($Header) and !defined($Footer)) {
+    chomp(my @TEMPLATE = <DATA>);
+    ($Header, $Footer) = split(/!!CONTENT!!/, join("\n", @TEMPLATE));
+  }
 }
 
-# Subs
 sub Markup {
   my @contents = @_;
   chomp(@contents);
@@ -217,31 +222,24 @@ sub GetFile {
     open(FH,"${rt}/${file}") or die $!;
     @return = <FH>;
     close(FH);
-  } #else {
-    #push @return, 'Page does not exist. You could <a href="/:edit/' . $ShortPage . '">create it.</a>';
-  #}
-  # Interpolate variables
-  #$ret = join("", @return);
-  #$ret =~ s/(\$\w+(?:::)?\w*)/"defined $1 ? $1 : ''"/gee;
-  #return split("\n", $ret);
+  }
   return @return;
 }
 
 sub InitDirs {
+  eval { mkdir $DataDir unless -d $DataDir; }; push @Errors, $@ if $@;
   $PageDir = "$DataDir/pages";
+  eval { mkdir $PageDir unless -d $DataDir; }; push @Errors, $@ if $@;
   $ArchiveDir = "$DataDir/archive";
+  eval { mkdir $ArchiveDir unless -d $ArchiveDir; }; push @Errors, $@ if $@;
   $PluginDir = "$DataDir/plugins";
+  eval { mkdir $PluginDir unless -d $PluginDir; }; push @Errors, $@ if $@;
+  $TempDir = "$DataDir/temp";
+  eval { mkdir $TempDir unless -d $TempDir; }; push @Errors, $@ if $@;
 }
 
 sub LoadPlugins {
-  # Read the list of files in the directory, if any
-  #opendir(DIR, $PluginDir);
-  #my @FILES = readdir(DIR);
-  #closedir(DIR);
-  #@FILES = grep(/.*\.pl$/, @FILES);	# Get only files that end in .pl
-  #foreach my $file (@FILES) {
-  #  print "$PluginDir/$file<br/>";
-  #}
+  # Scan $PluginDir for .pl and .pm files, and load them.
   if($PluginDir and -d $PluginDir) {
     foreach my $plugin (glob("$PluginDir/*.pl $PluginDir/*.pm")) {
       next unless ($plugin =~ /^($PluginDir\/[-\w.]+\.p[lm])$/o);
@@ -281,8 +279,21 @@ sub EditDisplay {
   }
 }
 
+sub AdminForm {
+  print '<form action="' . $ScriptName . '" method="post">';
+  print 'User: <input type="text" maxlength="8" size="8" name="user" />';
+  print ' Pass: <input type="password" size="12" name="pass" />';
+  print '<input type="submit" value="Go" /></form>';
+}
+
 sub DoAdmin {
   my ($u,$p) = ReadCookie;
+  if(!$u) {
+    print "<p>Presently, you do not have a user name set.</p>";
+  } else {
+    print "<p>Your user name is set to '$u'.</p>";
+  }
+  AdminForm;
 }
 
 sub ReadIn {
@@ -302,13 +313,13 @@ sub ReadIn {
   return 1;
 }
 
-sub DoRequest {
-  # Initialize directories
+sub Init {
   InitDirs;
-
-  # Load plugins
   LoadPlugins;
+  InitTemplate;
+}
 
+sub DoRequest {
   # HTTP Header
   print "Content-type: text/html\n\n";
 
@@ -340,8 +351,8 @@ sub DoRequest {
 }
 
 ## START
-DoRequest;
-
+Init;		# Load
+DoRequest;	# Handle the request
 1;	# In case we're being called elsewhere
 
 __DATA__
@@ -426,7 +437,7 @@ pre { border:0; font-size:10pt; }
 <div class="close"></div>
 <div class="footer">
 <hr/>
-<a href="$DiscussLink">$DiscussText</a> 
+$DiscussText
 <a title="Click to edit this page" rel="nofollow" href="$ShortUrl:edit/$ShortPage">Edit $PageName</a> 
 <a title="Click here to see revision history" rel="nofollow" href="$ShortUrl:history/$ShortPage">View Revisions</a> 
 <a title="Administration options" rel="nofollow" href="$ShortUrl:admin">Admin</a><span style="float:right;"><strong>$SiteName</strong>
