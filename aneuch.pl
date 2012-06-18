@@ -29,11 +29,14 @@
 ## **********************************************************************
 package Aneuch;
 use strict;
+use POSIX qw(strftime);
 # Some variables
 use vars qw($DataDir $SiteName $Page $ShortPage @Passwords $PageDir $ArchiveDir
 $ShortUrl $SiteMode $ScriptName $ShortScriptName $Header $Footer $PluginDir 
 $Url $DiscussText $DiscussPrefix $DiscussLink $DefaultPage $CookieName 
-$PageName %FORM $TempDir @Errors $command $contents);
+$PageName %FORM $TempDir @Messages $command $contents @Plugins $TimeStamp
+$PostFooter $TimeZone $VERSION $EditText $RevisionsText $NewPage $NewComment
+$NavBar);
 my %srvr = (
   80 => 'http://',
   443 => 'https://',
@@ -44,12 +47,14 @@ my %commandtitle = (
   ':search' => "Search $ShortPage",
   ':history' => "History for $ShortPage",
 );
-my %CommandLinks = (
-  'admin' => '?admin',
-  'edit' => '?edit=',
-  'search' => '?search=',
-  'history' => '?history=',
+my %Commands = (
+  admin => \&DoAdmin,
+  edit => \&DoEdit,
+  search => \&DoSearch,
+  history => \&DoHistory,
 );
+
+$VERSION = '0.1';
 
 # Subs
 sub InitConfig  {
@@ -59,6 +64,8 @@ sub InitConfig  {
 }
 
 sub InitVars {
+  # We must be the first entry in Plugins
+  @Plugins = ("aneuch.pl, version $VERSION, <a href='http://aneuch.myunixhost.com/' target='_blank'>Aneuch Wiki Engine</a>");
   # Define settings
   $DataDir = '/tmp/aneuch' unless $DataDir;	# Location of docs
   #$myd = $ENV{'DOCUMENT_ROOT'} . "/";		# Local location
@@ -68,17 +75,17 @@ sub InitVars {
   $DiscussPrefix = 'Discuss_' unless $DiscussPrefix; # Discussion page prefix
   $SiteName = 'Aneuch' unless $SiteName;		# Default site name
   $CookieName = 'Aneuch' unless $CookieName;	# Default cookie name
+  $TimeZone = 0 unless $TimeZone;		# Default to GMT, 1=localtime
 
   # Some cleanup
   #  Remove trailing slash from $DataDir, if it exists
   $DataDir =~ s!/\z!!;
 
-  # Local variables declared
-  #my ($command, $contents);
-
   # Get page name that is being requested
   $Page = $ENV{'REQUEST_URI'};	# Should be the page
+  $Page =~ s/%([a-fA-F0-9][a-fA-F0-9])/pack("C", hex($1))/eg;	# Get "plain"
   $Page =~ s!^/!!;		# Remove leading slash, if it exists
+  $Page =~ s/ /_/g;		# Convert spaces to underscore
   $Page =~ s!\.{2,}!!g;		# Remove every instance of double period
   if($Page =~ m/^.*=.*$/) {		# We're getting a command directive
     my @tc = split("=", $Page);	# Surely there's a better way...
@@ -94,18 +101,11 @@ sub InitVars {
   $PageName = $ShortPage;		# PageName is ShortPage with spaces
   $PageName =~ s/_/ /g;
 
-  # Discuss links
-  if($ShortPage !~ m/^$DiscussPrefix/) {
-    $DiscussLink = $ShortUrl . $DiscussPrefix . $ShortPage;
-    $DiscussText = $DiscussPrefix . $ShortPage;
-    $DiscussText =~ s/_/ /g;
-    $DiscussText = '<a href="' . $DiscussLink . '">' . $DiscussText . '</a>';
-  } else {
-    $DiscussLink = $ShortPage;
-    $DiscussLink =~ s/^$DiscussPrefix//;
-    $DiscussText = $DiscussLink;
-    $DiscussLink = $ShortUrl . $DiscussLink;
-    $DiscussText = '<a href="' . $DiscussLink . '">' . $DiscussText . '</a>';
+  # I know we just went through all that crap, but if command=admin, we need:
+  if($command and $command eq 'admin') {
+    $PageName = 'Admin';
+    #$ShortPage = '';
+    $Page = '';
   }
 
   # Figure out the script name, URL, etc.
@@ -115,10 +115,35 @@ sub InitVars {
   $ScriptName = $ENV{'SCRIPT_NAME'};
   $ShortScriptName = $0;
 
+  # Discuss links
+  if(!$command or $command ne 'admin') {
+    if($ShortPage !~ m/^$DiscussPrefix/) {
+      $DiscussLink = $ShortUrl . $DiscussPrefix . $ShortPage;
+      $DiscussText = $DiscussPrefix . $ShortPage;
+      $DiscussText =~ s/_/ /g;
+      $DiscussText = '<a title="' . $DiscussText . '" href="' . $DiscussLink . '">' . $DiscussText . '</a>';
+    } else {
+      $DiscussLink = $ShortPage;
+      $DiscussLink =~ s/^$DiscussPrefix//;
+      $DiscussText = $DiscussLink;
+      $DiscussLink = $ShortUrl . $DiscussLink;
+      $DiscussText = '<a title="Return to ' . $DiscussText . '" href="' . $DiscussLink . '">' . $DiscussText . '</a>';
+    }
+    $EditText = '<a title="Click to edit this page" rel="nofollow" href="' . $ShortUrl . '?edit=' . $ShortPage . '">Edit ' . $PageName . '</a>';
+    $RevisionsText = '<a title="Click here to see revision history" rel="nofollow" href="' . $ShortUrl . '?history=' . $ShortPage . '">View Revisions</a>';
+  }
+
   # If we're a command, change the page title
   if($command) {
     #$PageName = $commandtitle{$command};
   }
+
+  # Set the TimeStamp
+  $TimeStamp = time;
+
+  # New page and new comment
+  $NewPage = 'It appears that there is nothing here.' unless $NewPage;
+  $NewComment = 'Add your comment here.' unless $NewComment;
 }
 
 sub InitTemplate {
@@ -243,15 +268,15 @@ sub GetFile {
 }
 
 sub InitDirs {
-  eval { mkdir $DataDir unless -d $DataDir; }; push @Errors, $@ if $@;
+  eval { mkdir $DataDir unless -d $DataDir; }; push @Messages, $@ if $@;
   $PageDir = "$DataDir/pages";
-  eval { mkdir $PageDir unless -d $DataDir; }; push @Errors, $@ if $@;
+  eval { mkdir $PageDir unless -d $DataDir; }; push @Messages, $@ if $@;
   $ArchiveDir = "$DataDir/archive";
-  eval { mkdir $ArchiveDir unless -d $ArchiveDir; }; push @Errors, $@ if $@;
+  eval { mkdir $ArchiveDir unless -d $ArchiveDir; }; push @Messages, $@ if $@;
   $PluginDir = "$DataDir/plugins";
-  eval { mkdir $PluginDir unless -d $PluginDir; }; push @Errors, $@ if $@;
+  eval { mkdir $PluginDir unless -d $PluginDir; }; push @Messages, $@ if $@;
   $TempDir = "$DataDir/temp";
-  eval { mkdir $TempDir unless -d $TempDir; }; push @Errors, $@ if $@;
+  eval { mkdir $TempDir unless -d $TempDir; }; push @Messages, $@ if $@;
 }
 
 sub LoadPlugins {
@@ -284,7 +309,7 @@ sub CanEdit {
   
 }
 
-sub EditDisplay {
+sub DoEdit {
   my $contents = join("", GetFile($PageDir, $Page));
   $contents =~ s/</&lt;/g;            # Transform
   $contents =~ s/>/&gt;/g;
@@ -303,6 +328,14 @@ sub AdminForm {
 }
 
 sub DoAdmin {
+  if($ShortPage eq 'version') {
+    print '<p>Versions used on this site:</p>';
+    foreach my $c (@Plugins) {
+      print "<p>$c</p>\n";
+    }
+  }
+  print '<p>You may:<ul><li><a href="'.$ShortUrl.'?admin=version">View version information</a></li>';
+  print '</ul></p>';
   my ($u,$p) = ReadCookie;
   if(!$u) {
     print "<p>Presently, you do not have a user name set.</p>";
@@ -337,30 +370,68 @@ sub Init {
   InitTemplate;
 }
 
+sub DoDiscuss {
+  # So that plugins can modify the DoDiscuss action without having to totally
+  # re-write it, the decision was made that instead of DoDiscuss printing
+  # output directly, it should return an array.
+  my @returndiscuss = ();
+  push @returndiscuss, "<form action='$ScriptName' method='post'>";
+  push @returndiscuss, "<textarea name='comment' cols='80' rows='5'>$NewComment</textarea>";
+  push @returndiscuss, "Name: <input type='text' name='uname' width='8' /> ";
+  push @returndiscuss, "URL (optional): <input type='text' name='url' width='12' />";
+  push @returndiscuss, "<input type='submit' value='Save' />";
+  push @returndiscuss, "</form>";
+
+  return @returndiscuss;
+}
+
+sub DoRecentChanges {
+
+}
+
+sub DoSearch {
+
+}
+
+sub DoHistory {
+
+}
+
+sub FriendlyTime {
+  # FriendlyTime gives us a regular time rather than num of seconds
+  $TimeStamp = time() unless $TimeStamp;	# If it wasn't set before...
+  # local time is a booger...
+  my $localtime = strftime "%a %b %e %H:%M:%S %Z %Y", localtime($TimeStamp);
+  # GMT is not as difficult
+  my $gmtime = strftime "%a %b %e %H:%M:%S GMT %Y", gmtime($TimeStamp);
+  # Send them back in an array... GMT first, local second.
+  return ($gmtime, $localtime);
+}
+
 sub DoRequest {
   # HTTP Header
   print "Content-type: text/html\n\n";
 
   # Header
   print Interpolate($Header);
-  
   # This is where the magic happens
-  if($command) {                          # Command directive?
-    if($command eq 'edit') {             # Edit file
-      EditDisplay;
-    }
-    if($command eq 'admin') {
-      DoAdmin;
-    }
+  if($command and $Commands{$command}) {	# Command directive?
+    &{$Commands{$command}};			# Execute it.
   } else {
     if(! -f "$PageDir/$Page") {
-      print '<p>It appears that there is nothing here.</p>';
+      print $NewPage;
     } else {
       if(exists &Markup) {                # If there's markup defined, do markup
         print join("\n", Markup(GetFile($PageDir, $Page)));
       } else {
         print join("\n", GetFile($PageDir, $Page));
       }
+    }
+    if($ShortPage eq 'RecentChanges') {
+      DoRecentChanges;
+    }
+    if($ShortPage =~ m/^$DiscussPrefix/ and $SiteMode < 2) {
+      print DoDiscuss;
     }
   }
 
@@ -380,6 +451,7 @@ __DATA__
 <link rel="alternate" type="application/wiki" title="Edit this page" href="$Url?edit=$ShortPage" />
 <meta name="robots" content="INDEX,FOLLOW" />
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<meta name="generator" content="Aneuch $VERSION" />
 <style type="text/css">
 body {
     background:#fff;
@@ -391,7 +463,7 @@ body {
 a {
     text-decoration:none;
     font-weight:bold;
-    color:#c00;
+    color: blue; /*#c00;*/
 }
 /*a:visited { color:#c55; }*/
 div.header h1 a:hover, h1 a:hover, h2 a:hover, h3 a:hover, h4 a:hover,
@@ -427,7 +499,7 @@ div.wrapper p {
   text-align:justify;
 }
 a.external {
-  color:blue;
+  color: #c00; /*blue;*/
 }
 a.external:hover {
   color:white;
@@ -435,6 +507,10 @@ a.external:hover {
 }
 
 textarea {
+  border-color:black;
+  border-style:solid;
+  border-width:thin;
+  padding: 3px;
   width: 100%;
 }
 
@@ -451,7 +527,8 @@ pre { border:0; font-size:10pt; }
 </style>
 </head>
 <body>
-<div class="header"><a href="$Url$DefaultPage">$DefaultPage</a> $Navbar
+<div class="header"><a href="$Url$DefaultPage">$DefaultPage</a> 
+<a href="RecentChanges">Recent Changes</a> $NavBar
 <h1><a title="Search for references to $ShortPage" rel="nofollow" href="$ShortUrl?search=$ShortPage">$PageName</a></h1></div>
 <div class="wrapper">
 !!CONTENT!!
@@ -460,12 +537,13 @@ pre { border:0; font-size:10pt; }
 <div class="footer">
 <hr/>
 $DiscussText
-<a title="Click to edit this page" rel="nofollow" href="$ShortUrl?edit=$ShortPage">Edit $PageName</a> 
-<a title="Click here to see revision history" rel="nofollow" href="$ShortUrl?history=$ShortPage">View Revisions</a> 
-<a title="Administration options" rel="nofollow" href="$ShortUrl?admin">Admin</a><span style="float:right;"><strong>$SiteName</strong>
+$EditText
+$RevisionsText
+<a title="Administration options" rel="nofollow" href="$ShortUrl?admin=admin">Admin</a><span style="float:right;"><strong>$SiteName</strong>
 is powered by <em>Aneuch</em>.</span>
 <span class="time"><br/>
 $EditString</span>
+$PostFooter
 </div>
 </body>
 </html>
