@@ -36,7 +36,7 @@ $ShortUrl $SiteMode $ScriptName $ShortScriptName $Header $Footer $PluginDir
 $Url $DiscussText $DiscussPrefix $DiscussLink $DefaultPage $CookieName 
 $PageName %FORM $TempDir @Messages $command $contents @Plugins $TimeStamp
 $PostFooter $TimeZone $VERSION $EditText $RevisionsText $NewPage $NewComment
-$NavBar);
+$NavBar $ConfFile $UserIP);
 my %srvr = (
   80 => 'http://',
   443 => 'https://',
@@ -58,8 +58,9 @@ $VERSION = '0.1';
 
 # Subs
 sub InitConfig  {
-  if(-f "config.pl") {
-    do 'config.pl';
+  $ConfFile = 'config.pl' unless $ConfFile;
+  if(-f $ConfFile) {
+    do $ConfFile;
   }
 }
 
@@ -87,10 +88,9 @@ sub InitVars {
   $Page =~ s!^/!!;		# Remove leading slash, if it exists
   $Page =~ s/ /_/g;		# Convert spaces to underscore
   $Page =~ s!\.{2,}!!g;		# Remove every instance of double period
-  if($Page =~ m/^.*=.*$/) {		# We're getting a command directive
-    my @tc = split("=", $Page);	# Surely there's a better way...
-    $command = shift @tc;
-    $Page = join("/", @tc);
+  if($Page =~ m/^?do=(.*)&page=(.*)$/) {# We're getting a command directive
+    $command = $1;
+    $Page = $2;
     $command =~ s/^\?//;	# Get rid of '?', if it's there.
   }
   if($Page eq "") { $Page = $DefaultPage };	# Default if blank
@@ -129,8 +129,8 @@ sub InitVars {
       $DiscussLink = $ShortUrl . $DiscussLink;
       $DiscussText = '<a title="Return to ' . $DiscussText . '" href="' . $DiscussLink . '">' . $DiscussText . '</a>';
     }
-    $EditText = '<a title="Click to edit this page" rel="nofollow" href="' . $ShortUrl . '?edit=' . $ShortPage . '">Edit ' . $PageName . '</a>';
-    $RevisionsText = '<a title="Click here to see revision history" rel="nofollow" href="' . $ShortUrl . '?history=' . $ShortPage . '">View Revisions</a>';
+    $EditText = '<a title="Click to edit this page" rel="nofollow" href="' . $ShortUrl . '?do=edit&page=' . $ShortPage . '">Edit ' . $PageName . '</a>';
+    $RevisionsText = '<a title="Click here to see revision history" rel="nofollow" href="' . $ShortUrl . '?do=history&page=' . $ShortPage . '">View Revisions</a>';
   }
 
   # If we're a command, change the page title
@@ -142,8 +142,11 @@ sub InitVars {
   $TimeStamp = time;
 
   # New page and new comment
-  $NewPage = 'It appears that there is nothing here.' unless $NewPage;
+  $NewPage = '<p>It appears that there is nothing here.</p>' unless $NewPage;
   $NewComment = 'Add your comment here.' unless $NewComment;
+
+  # Set visitor IP address
+  $UserIP = $ENV{'REMOTE_ADDR'};
 }
 
 sub InitTemplate {
@@ -155,67 +158,72 @@ sub InitTemplate {
 }
 
 sub Markup {
-  my @contents = @_;
-  chomp(@contents);
-
+  chomp(my @contents = @_);
   if($contents[0] eq "# nomarkup") { return @contents; }
   my $step = 0;
   my $openul = 0;
   my $openol = 0;
+  my $listlevel = 0;
   my @build;
   foreach my $line (@contents) {
     # Are we doing lists?
     # UL
-    if(($line =~ m/^\*{1,}/) && (! $openul)) {$openul=1; push @build, "<ul>";}
-    if(($openul) && ($line !~ m/^\*{1,}/)) {$openul=0; push @build, "</ul>";}
+    if(($line =~ m/^[\s\t]*\*{1,5}[ \t]/) && (! $openul)) {$openul=1; push @build, "<ul>";}
+    if(($openul) && ($line !~ m/^[\s\t]*\*{1,5}[ \t]/)) {$openul=0; push @build, "</ul>";}
     # OL
-    if(($line =~ m/^-{1,}/) && (! $openol)) {$openol=1; push @build, "<ol>";}
-    if(($openol) && ($line !~ m/^-{1,}/)) {$openol=0; push @build, "</ol>";}
+    if(($line =~ m/^[\s\t]*#{1,}/) && (! $openol)) {$openol=1; push @build, "<ol>";}
+    if(($openol) && ($line !~ m/^[\s\t]*#{1,}/)) {$openol=0; push @build, "</ol>";}
 
     # Get rid of comments
-    $line =~ s/^#//;
+    #$line =~ s/^#//;
 
     # Forced line breaks
-    $line =~ s#\\\\\s#<br/>#;
+    $line =~ s#\\\\#<br/>#;
 
     # Headers
-    $line =~ s#^={5}(.*)={5}$#<h5>$1</h5>#;
-    $line =~ s#^={4}(.*)={4}$#<h4>$1</h4>#;
-    $line =~ s#^={3}(.*)={3}$#<h3>$1</h3>#;
-    $line =~ s#^={2}(.*)={2}$#<h2>$1</h2>#;
-    $line =~ s#^=(.*)=$#<h1>$1</h1>#;
+    $line =~ s#^={5}(.*?)(=*)$#<h5>$1</h5>#;
+    $line =~ s#^={4}(.*?)(=*)$#<h4>$1</h4>#;
+    $line =~ s#^={3}(.*?)(=*)$#<h3>$1</h3>#;
+    $line =~ s#^={2}(.*?)(=*)$#<h2>$1</h2>#;
+    $line =~ s#^=(.*?)(=*)$#<h1>$1</h1>#;
 
     # Links
-    $line =~ s#\[{2}(htt(p|ps)://[^\|]+)\|([^\]]+)\]{2}#<a href="$1" class="external" target="_blank" title="External link: $1">$3</a>#g;
-    $line =~ s#\[{2}(\w+)\|{1}([^\]{2}]+)\]{2}#<a href="$1" title="$1">$2</a>#g;
-    $line =~ s#\[{2}([^\]{2}]+)\]{2}#<a href="$1" title="$1">$1</a>#g;
+    $line =~ s#\[{2}(htt(p|ps)://.*?)\|(.*?)\]{2}#<a href="$1" class="external" target="_blank" title="External link: $1">$3</a>#g;
+    $line =~ s#\[{2}(.*?)\|{1}(.*?)\]{2}#<a href="$1" title="$1">$2</a>#g;
+    $line =~ s#\[{2}(.*?)\]{2}#<a href="$1" title="$1">$1</a>#g;
 
     # HR
-    $line =~ s#_{4,}#<hr/>#;
+    $line =~ s#^_{4,}$#<hr/>#;
 
     # <tt>
-    $line =~ s#\`{1}([^\`]+)\`{1}#<tt>$1</tt>#g;
-
-    # Bold
-    $line =~ s#'{3}([^'{3}]+)'{3}#<strong>$1</strong>#g;
+    $line =~ s#\`{1}(.*?)\`{1}#<tt>$1</tt>#g;
 
     # Extra tags
     #$line =~ s#^{(.*)$#<$1>#;
     #$line =~ s#^}(.*)$#</$1>#;
 
     # UL LI
-    $line =~ s#^\*{1,}(.*)$#<li>$1</li>#;
+    $line =~ s#^[\s\t]*\*{1,5}[ \t](.*)#<li>$1</li>#s;
 
     # OL LI
-    $line =~ s#^-{1,}(.*)$#<li>$1</li>#;
+    $line =~ s!^[\s\t]*#{1,5}[ \t](.*)!<li>$1</li>!s;
+
+    # Bold
+    $line =~ s#\*{2}(.*?)\*{2}#<strong>$1</strong>#g;
 
     # Images
     #$line =~ s#<{2}([^\|]+)\|([^>{2}]+)>{2}#<img src="$1" $2 />#g;
-    $line =~ s#\{{3}(\w+)\}([^\}]+)\}{2}#<img src="$2" align="$1" />#g;
-    $line =~ s#\{{2}([^\}]+)\}{2}#<img src="$1" />#g;
+    $line =~ s#\{{2}(left|right):(.*?)\|(.*?)\}{2}#<img src="$2" alt="$3" align="$1" />#g;
+    $line =~ s#\{{2}(left|right):(.*?)\}{2}#<img src="$2" align="$1" />#g;
+    $line =~ s#\{{2}(.*?)\|(.*?)\}{2}#<img src="$1" alt="$2" />#g;
+    $line =~ s#\{{2}(.*?)\}{2}#<img src="$1" />#g;
 
+    # Fix for italics...
+    $line =~ s#htt(p|ps)://#htt$1:~/~/#g;
     # Italics
-    $line =~ s#'{2}([^'{2}]+)'{2}#<em>$1</em>#g;
+    $line =~ s#/{2}(.*?)/{2}#<em>$1</em>#g;
+    # Fix for italics...
+    $line =~ s#htt(p|ps):~/~/#htt$1://#g;
 
     # Add it
     push @build, $line;
@@ -225,13 +233,16 @@ sub Markup {
   my $openp = 0;        # Assume false
   my $i = 0;
   for($i=0;$i<=$#build;$i++) {
-    if(($prevblank) && ($build[$i] !~ m/^<[hd]/) && ($build[$i] ne '')) {
-      $build[$i] = "<p>".$build[$i];
-      $prevblank = 0; $openp = 1;
+    if($prevblank and ($build[$i] !~ m/^<[dh]/) and ($build[$i] ne '')) {
+      $prevblank = 0;
+      if(!$openp) {
+        $build[$i] = "<p>".$build[$i];
+        $openp = 1;
+      }
     }
-    if(($build[$i] =~ m/^<[hd]/) || ($build[$i] eq '')) {
+    if(($build[$i] =~ m/^<[dh]/) || ($build[$i] eq '')) {
       $prevblank = 1;
-      if(($i > 0) && ($build[$i-1] !~ m/^<[hd]/) && ($openp)) {
+      if(($i > 0) && ($build[$i-1] !~ m/^<[dh]/) && ($openp)) {
         $build[$i-1] .= "</p>"; $openp = 0;
       }
     }
@@ -260,7 +271,7 @@ sub GetFile {
   my @return = qw();
   my $ret;
   if(-f "${rt}/${file}") {
-    open(FH,"${rt}/${file}") or die $!;
+    open(FH,"${rt}/${file}") or push @Messages, $!; #die $!;
     @return = <FH>;
     close(FH);
   }
@@ -305,19 +316,54 @@ sub ReadCookie {
   return ($uname, $passwd);
 }
 
+sub SetCookie {
+  # Save user and pass to cookie
+  my ($user, $pass) = @_;
+}
+
 sub CanEdit {
-  
+  my ($u, $p) = ReadCookie;
+  my $matchedpass = grep(/^$p$/, @Passwords);
+  if($SiteMode == 0 or ($SiteMode == 1 and $ShortPage =~ m/^$DiscussPrefix/) or $matchedpass > 0) {
+    return 1;
+  } else {
+    return 0;
+  }
 }
 
 sub DoEdit {
-  my $contents = join("", GetFile($PageDir, $Page));
+  # Let's begin
+  my $contents = join("", &GetFile($PageDir, $Page));
   $contents =~ s/</&lt;/g;            # Transform
   $contents =~ s/>/&gt;/g;
   print '<textarea cols="100" rows="25">' . $contents . '</textarea>';
   print '<p><a href="' . $ShortUrl . $ShortPage . '">Return</a></p>';
-  if(CanEdit) {
-    # Buttons
+  if(&CanEdit) {
+    # Set a lock
+    if(&SetLock) {
+      # Buttons
+    }
   }
+}
+
+sub SetLock {
+  # Set a lock on $Page
+  if(-f "$TempDir/$Page.lock") {
+    open(LOCK,"<$TempDir/$Page.lock") or push @Messages, "Error opening $Page.lock for read: $!";
+    my @lock = <LOCK>;
+    close(LOCK);
+    print "<p><span style='color:red'>This file is locked by <strong>$lock[0]</strong> since <strong>" . (FriendlyTime($lock[1]))[$TimeZone] . "</strong>.";
+    return 0;
+  } else {
+    open(LOCK,">$TempDir/$Page.lock") or push @Messages, "Error opening $Page.lock for write: $!";
+    print LOCK "$UserIP\n$TimeStamp";
+    close(LOCK);
+    return 1;
+  }
+}
+
+sub UnLock {
+
 }
 
 sub AdminForm {
@@ -334,7 +380,7 @@ sub DoAdmin {
       print "<p>$c</p>\n";
     }
   }
-  print '<p>You may:<ul><li><a href="'.$ShortUrl.'?admin=version">View version information</a></li>';
+  print '<p>You may:<ul><li><a href="'.$ShortUrl.'?do=admin&page=version">View version information</a></li>';
   print '</ul></p>';
   my ($u,$p) = ReadCookie;
   if(!$u) {
@@ -375,6 +421,9 @@ sub DoDiscuss {
   # re-write it, the decision was made that instead of DoDiscuss printing
   # output directly, it should return an array.
   my @returndiscuss = ();
+  if(!CanEdit) {
+    return @returndiscuss;
+  }
   push @returndiscuss, "<form action='$ScriptName' method='post'>";
   push @returndiscuss, "<textarea name='comment' cols='80' rows='5'>$NewComment</textarea>";
   push @returndiscuss, "Name: <input type='text' name='uname' width='8' /> ";
@@ -398,12 +447,13 @@ sub DoHistory {
 }
 
 sub FriendlyTime {
+  my $rcvd = $_ if $_;
   # FriendlyTime gives us a regular time rather than num of seconds
   $TimeStamp = time() unless $TimeStamp;	# If it wasn't set before...
-  # local time is a booger...
-  my $localtime = strftime "%a %b %e %H:%M:%S %Z %Y", localtime($TimeStamp);
-  # GMT is not as difficult
-  my $gmtime = strftime "%a %b %e %H:%M:%S GMT %Y", gmtime($TimeStamp);
+  my $tv = $TimeStamp;
+  $tv = $rcvd if $rcvd;
+  my $localtime = strftime "%a %b %e %H:%M:%S %Z %Y", localtime($tv);
+  my $gmtime = strftime "%a %b %e %H:%M:%S GMT %Y", gmtime($tv);
   # Send them back in an array... GMT first, local second.
   return ($gmtime, $localtime);
 }
@@ -448,7 +498,7 @@ __DATA__
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml"><head>
 <title>$SiteName: $PageName</title>
-<link rel="alternate" type="application/wiki" title="Edit this page" href="$Url?edit=$ShortPage" />
+<link rel="alternate" type="application/wiki" title="Edit this page" href="$Url?do=edit&page=$ShortPage" />
 <meta name="robots" content="INDEX,FOLLOW" />
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
 <meta name="generator" content="Aneuch $VERSION" />
@@ -529,7 +579,7 @@ pre { border:0; font-size:10pt; }
 <body>
 <div class="header"><a href="$Url$DefaultPage">$DefaultPage</a> 
 <a href="RecentChanges">Recent Changes</a> $NavBar
-<h1><a title="Search for references to $ShortPage" rel="nofollow" href="$ShortUrl?search=$ShortPage">$PageName</a></h1></div>
+<h1><a title="Search for references to $ShortPage" rel="nofollow" href="$ShortUrl?do=search&page=$ShortPage">$PageName</a></h1></div>
 <div class="wrapper">
 !!CONTENT!!
 </div>
@@ -539,7 +589,7 @@ pre { border:0; font-size:10pt; }
 $DiscussText
 $EditText
 $RevisionsText
-<a title="Administration options" rel="nofollow" href="$ShortUrl?admin=admin">Admin</a><span style="float:right;"><strong>$SiteName</strong>
+<a title="Administration options" rel="nofollow" href="$ShortUrl?do=admin&page=admin">Admin</a><span style="float:right;"><strong>$SiteName</strong>
 is powered by <em>Aneuch</em>.</span>
 <span class="time"><br/>
 $EditString</span>
