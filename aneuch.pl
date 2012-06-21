@@ -36,7 +36,7 @@ $ShortUrl $SiteMode $ScriptName $ShortScriptName $Header $Footer $PluginDir
 $Url $DiscussText $DiscussPrefix $DiscussLink $DefaultPage $CookieName 
 $PageName %FORM $TempDir @Messages $command $contents @Plugins $TimeStamp
 $PostFooter $TimeZone $VERSION $EditText $RevisionsText $NewPage $NewComment
-$NavBar $ConfFile $UserIP);
+$NavBar $ConfFile $UserIP $UserName $VisitorLog $LockExpire);
 my %srvr = (
   80 => 'http://',
   443 => 'https://',
@@ -77,13 +77,21 @@ sub InitVars {
   $SiteName = 'Aneuch' unless $SiteName;		# Default site name
   $CookieName = 'Aneuch' unless $CookieName;	# Default cookie name
   $TimeZone = 0 unless $TimeZone;		# Default to GMT, 1=localtime
+  $LockExpire = 60*5 unless $LockExpire;	# 5 mins, unless set elsewhere
 
   # Some cleanup
   #  Remove trailing slash from $DataDir, if it exists
   $DataDir =~ s!/\z!!;
 
+  # Figure out the script name, URL, etc.
+  $ShortUrl = $ENV{'SCRIPT_NAME'};
+  $ShortUrl =~ s/$0//;
+  $Url = $srvr{$ENV{'SERVER_PORT'}} . $ENV{'HTTP_HOST'} . $ShortUrl;
+  $ScriptName = $ENV{'SCRIPT_NAME'};
+  $ShortScriptName = $0;
+
   # Get page name that is being requested
-  $Page = $ENV{'REQUEST_URI'};	# Should be the page
+  $Page = $ENV{'QUERY_STRING'};	# Should be the page
   $Page =~ s/%([a-fA-F0-9][a-fA-F0-9])/pack("C", hex($1))/eg;	# Get "plain"
   $Page =~ s!^/!!;		# Remove leading slash, if it exists
   $Page =~ s/ /_/g;		# Convert spaces to underscore
@@ -94,8 +102,9 @@ sub InitVars {
     $command =~ s/^\?//;	# Get rid of '?', if it's there.
   }
   if($Page eq "") { $Page = $DefaultPage };	# Default if blank
-  $Page =~ s/\.[a-z]{3,4}$/.txt/;		# If extension, change to .txt
-  if($Page !~ m/\.[a-z]{3}$/) { $Page .= ".txt"; }	# If none, default
+  #$Page =~ s/\.[a-z]{3,4}$/.txt/;		# If extension, change to .txt
+  #if($Page !~ m/\.[a-z]{3}$/) { $Page .= ".txt"; }	# If none, default
+  $Page =~ s/\.[\w]{3,4}$//;		# Remove all extensions
   $ShortPage = $Page;			# ShortPage is Page sans extension
   $ShortPage =~ s/\.[a-z]{3,4}$//;
   $PageName = $ShortPage;		# PageName is ShortPage with spaces
@@ -107,13 +116,6 @@ sub InitVars {
     #$ShortPage = '';
     $Page = '';
   }
-
-  # Figure out the script name, URL, etc.
-  $ShortUrl = $ENV{'SCRIPT_NAME'};
-  $ShortUrl =~ s/$0//;
-  $Url = $srvr{$ENV{'SERVER_PORT'}} . $ENV{'HTTP_HOST'} . $ShortUrl;
-  $ScriptName = $ENV{'SCRIPT_NAME'};
-  $ShortScriptName = $0;
 
   # Discuss links
   if(!$command or $command ne 'admin') {
@@ -129,14 +131,18 @@ sub InitVars {
       $DiscussLink = $ShortUrl . $DiscussLink;
       $DiscussText = '<a title="Return to ' . $DiscussText . '" href="' . $DiscussLink . '">' . $DiscussText . '</a>';
     }
-    $EditText = '<a title="Click to edit this page" rel="nofollow" href="' . $ShortUrl . '?do=edit&page=' . $ShortPage . '">Edit ' . $PageName . '</a>';
-    $RevisionsText = '<a title="Click here to see revision history" rel="nofollow" href="' . $ShortUrl . '?do=history&page=' . $ShortPage . '">View Revisions</a>';
+    if(&CanEdit) {
+      $EditText = '<a title="Click to edit this page" rel="nofollow" href="' . $ShortUrl . '?do=edit&page=' . $ShortPage . '">Edit ' . $PageName . '</a>';
+    } else {
+      $EditText = '<a title="Read only page" rel="nofollow" href="' . $ShortUrl . '?do=edit&page=' . $ShortPage . '">This page is read only</a>';
+    }
+    $RevisionsText = '<a title="Click here to see revision history" rel="nofollow" href="' . $ShortUrl . '?do=history&page=' . $ShortPage . '">View page history</a>';
   }
 
   # If we're a command, change the page title
-  if($command) {
-    #$PageName = $commandtitle{$command};
-  }
+  #if($command) {
+  #  $PageName = $commandtitle{$command};
+  #}
 
   # Set the TimeStamp
   $TimeStamp = time;
@@ -147,6 +153,10 @@ sub InitVars {
 
   # Set visitor IP address
   $UserIP = $ENV{'REMOTE_ADDR'};
+  ($UserName) = &ReadCookie;
+
+  # Navbar
+  $NavBar = "<a href='$Url$DefaultPage'>$DefaultPage</a> <a href='".$ShortUrl."RecentChanges'>RecentChanges</a> " . $NavBar;
 }
 
 sub InitTemplate {
@@ -225,6 +235,9 @@ sub Markup {
     # Fix for italics...
     $line =~ s#htt(p|ps):~/~/#htt$1://#g;
 
+    # Strikethrough
+    $line =~ s#-{2}(.*?)-{2}#<del>$1</del>#g;
+
     # Add it
     push @build, $line;
   }
@@ -233,16 +246,16 @@ sub Markup {
   my $openp = 0;        # Assume false
   my $i = 0;
   for($i=0;$i<=$#build;$i++) {
-    if($prevblank and ($build[$i] !~ m/^<[dh]/) and ($build[$i] ne '')) {
+    if($prevblank and ($build[$i] !~ m/^<[h]/) and ($build[$i] ne '')) {
       $prevblank = 0;
       if(!$openp) {
         $build[$i] = "<p>".$build[$i];
         $openp = 1;
       }
     }
-    if(($build[$i] =~ m/^<[dh]/) || ($build[$i] eq '')) {
+    if(($build[$i] =~ m/^<[h]/) || ($build[$i] eq '')) {
       $prevblank = 1;
-      if(($i > 0) && ($build[$i-1] !~ m/^<[dh]/) && ($openp)) {
+      if(($i > 0) && ($build[$i-1] !~ m/^<[h]/) && ($openp)) {
         $build[$i-1] .= "</p>"; $openp = 0;
       }
     }
@@ -253,7 +266,7 @@ sub Markup {
   return ("<!-- start of Aneuch markup -->\n", @build, "\n<!-- end of Aneuch markup -->\n");
 }
 
-sub Trim($) {
+sub Trim {
   my $string = shift;
   $string =~ s/^\s+//;
   $string =~ s/\s+$//;
@@ -275,19 +288,22 @@ sub GetFile {
     @return = <FH>;
     close(FH);
   }
+  #chomp(@return);
+  s/\r//g for @return;
   return @return;
 }
 
 sub InitDirs {
   eval { mkdir $DataDir unless -d $DataDir; }; push @Messages, $@ if $@;
   $PageDir = "$DataDir/pages";
-  eval { mkdir $PageDir unless -d $DataDir; }; push @Messages, $@ if $@;
+  eval { mkdir $PageDir unless -d $PageDir; }; push @Messages, $@ if $@;
   $ArchiveDir = "$DataDir/archive";
   eval { mkdir $ArchiveDir unless -d $ArchiveDir; }; push @Messages, $@ if $@;
   $PluginDir = "$DataDir/plugins";
   eval { mkdir $PluginDir unless -d $PluginDir; }; push @Messages, $@ if $@;
   $TempDir = "$DataDir/temp";
   eval { mkdir $TempDir unless -d $TempDir; }; push @Messages, $@ if $@;
+  $VisitorLog = "$DataDir/visitors.log";
 }
 
 sub LoadPlugins {
@@ -304,27 +320,42 @@ sub LoadPlugins {
 sub ReadCookie {
   # Read cookies
   my $rcvd_cookies = $ENV{'HTTP_COOKIE'};
+  my ($uname, $passwd) = ('','');
   my @cookies = split(/;/, $rcvd_cookies);
-  my $wikicookie = (split(/=/,grep(/^$CookieName=/, @cookies)))[1];
-  if(!$wikicookie) { return ('',''); }
-  my @c = split(/&/,$wikicookie);
-  my ($uname, $passwd) = '';
-  foreach my $cc (@c) {
-    if($cc =~ m/^user\./) { $uname = (split(/\./, $cc))[1]; }
-    if($cc =~ m/^pwd\./) { $passwd = (split(/\./, $cc))[1]; }
+  foreach my $c (@cookies) {
+    if(grep(/^$CookieName=/,&Trim($c))) {
+      ($uname, $passwd) = split(/:/, (split(/=/,$c))[1]);
+    }
   }
   return ($uname, $passwd);
 }
 
 sub SetCookie {
   # Save user and pass to cookie
-  my ($user, $pass) = @_;
+  my ($user, $pass) = ($FORM{user}, $FORM{pass});
+  my $matchedpass = grep(/^$pass$/, @Passwords); # Did they provide right pass?
+  my $cookie = $user if $user;		# Username first, if they gave it
+  if($matchedpass and $user) {		# Need both...
+    $cookie .= ':' . $pass;
+  }
+  my $futime = gmtime($TimeStamp + 31556926)." GMT";	# Now + 1 year
+  print "Set-cookie: $CookieName=$cookie; path=$ShortUrl; expires=$futime;\n";
+  #print "Location: $ShortUrl\n\n";
 }
 
 sub CanEdit {
-  my ($u, $p) = ReadCookie;
+  my ($u, $p) = &ReadCookie;
   my $matchedpass = grep(/^$p$/, @Passwords);
-  if($SiteMode == 0 or ($SiteMode == 1 and $ShortPage =~ m/^$DiscussPrefix/) or $matchedpass > 0) {
+  if($SiteMode == 0 or $matchedpass > 0) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+sub CanDiscuss {
+  #my ($u, $p) = &ReadCookie;
+  if($SiteMode < 2 and $ShortPage =~ m/^$DiscussPrefix/) {
     return 1;
   } else {
     return 0;
@@ -332,27 +363,44 @@ sub CanEdit {
 }
 
 sub DoEdit {
+  my $canedit = &CanEdit;
   # Let's begin
   my $contents = join("", &GetFile($PageDir, $Page));
   $contents =~ s/</&lt;/g;            # Transform
   $contents =~ s/>/&gt;/g;
-  print '<textarea cols="100" rows="25">' . $contents . '</textarea>';
-  print '<p><a href="' . $ShortUrl . $ShortPage . '">Return</a></p>';
-  if(&CanEdit) {
-    # Set a lock
-    if(&SetLock) {
-      # Buttons
+  if($canedit) {
+    print '<form action="' . $ShortUrl . $ShortScriptName . '" method="post">';
+    print '<input type="hidden" name="doing" value="editing">';
+    print '<input type="hidden" name="file" value="' . $ShortPage . '">';
+    if(-f "$PageDir/$Page") {
+      print '<input type="hidden" name="mtime" value="' . (stat("$PageDir/$Page"))[9] . '">';
     }
   }
+  print '<textarea name="text" cols="100" rows="25">' . $contents . '</textarea>';
+  if($canedit) {
+    # Set a lock
+    if(&SetLock) {
+      print 'Log message: <input type="text" name="log" size="60" />';
+      print ' User name: <input type="text" name="uname" size="12" value="'.$UserName.'" />';
+      print '<input type="submit" name="whattodo" value="Save" />';
+      print '<input type="submit" name="whattodo" value="Cancel" />';
+    }
+    print '</form>';
+  }
+  #print '<p><a href="' . $ShortUrl . $ShortPage . '">Return</a></p>';
 }
 
 sub SetLock {
+  if(-f "$TempDir/$Page.lock" and ((stat("$TempDir/$Page.lock"))[9] <= ($TimeStamp - $LockExpire))) {
+    &UnLock;
+  }
   # Set a lock on $Page
   if(-f "$TempDir/$Page.lock") {
     open(LOCK,"<$TempDir/$Page.lock") or push @Messages, "Error opening $Page.lock for read: $!";
     my @lock = <LOCK>;
     close(LOCK);
-    print "<p><span style='color:red'>This file is locked by <strong>$lock[0]</strong> since <strong>" . (FriendlyTime($lock[1]))[$TimeZone] . "</strong>.";
+    print "<p><span style='color:red'>This file is locked by <strong>$lock[0]</strong> since <strong>" . (FriendlyTime($lock[1]))[$TimeZone] . "</strong>.</span>";
+    print "<br/>Lock should expire by " . (FriendlyTime($lock[1] + $LockExpire))[$TimeZone] . ", and it is now " . (&FriendlyTime)[$TimeZone] . ".</p>";
     return 0;
   } else {
     open(LOCK,">$TempDir/$Page.lock") or push @Messages, "Error opening $Page.lock for write: $!";
@@ -363,12 +411,54 @@ sub SetLock {
 }
 
 sub UnLock {
+  my $pg = $Page;
+  ($pg) = @_ if @_ >= 1;
+  if(-f "$TempDir/$pg.lock") {
+    if(!unlink "$TempDir/$pg.lock") {
+      push @Messages, "Unable to delete lock file $pg.lock: $!";
+    }
+  }
+}
 
+sub Index {
+  my $pg = $ShortPage;
+  ($pg) = @_ if @_ >= 1;
+  open(INDEX,"<$DataDir/pageindex") or push @Messages, "Index: Unable to open pageindex for read: $!";
+  my @pagelist = <INDEX>;
+  close(INDEX);
+  if(!grep(/^$pg$/,@pagelist)) {
+    open(INDEX,">>$DataDir/pageindex") or push @Messages, "Index: Unable to open pageindex for append: $!";
+    print INDEX "$pg\n";
+  }
+}
+
+sub DoArchive {
+  my $file = shift;	# The file we're working on
+  if(!-f "$PageDir/$file") { return; }
+  # $archive will be the 1-letter dir under /archive that we're writing to
+  my $archive = substr($file,0,1); $archive =~ tr/[a-z]/[A-Z]/;
+  # If $archive doesn't exist, we'd better create it...
+  if(! -d "$ArchiveDir/$archive") { mkdir "$ArchiveDir/$archive"; }
+  # Now copy...
+  system("cp $PageDir/$file $ArchiveDir/$archive/$file.$TimeStamp");
+  #system("gzip $ArchiveDir/$archive/$file.$TimeStamp");
+}
+
+sub WriteFile {
+  my ($file, $content) = @_;
+  &DoArchive($file);
+  $content =~ s/\r//g;
+  open(FILE, ">$PageDir/$file") or push @Messages, "Unable to write to $file: $!";
+  print FILE $content;
+  close(FILE);
+  &UnLock($file);
+  &Index($file);
 }
 
 sub AdminForm {
-  print '<form action="' . $ScriptName . '" method="post">';
-  print 'User: <input type="text" maxlength="8" size="8" name="user" />';
+  print '<form action="' . $ShortUrl . $ShortScriptName . '" method="post">';
+  print '<input type="hidden" name="doing" value="login" />';
+  print 'User: <input type="text" maxlength="30" size="8" name="user" />';
   print ' Pass: <input type="password" size="12" name="pass" />';
   print '<input type="submit" value="Go" /></form>';
 }
@@ -382,13 +472,13 @@ sub DoAdmin {
   }
   print '<p>You may:<ul><li><a href="'.$ShortUrl.'?do=admin&page=version">View version information</a></li>';
   print '</ul></p>';
-  my ($u,$p) = ReadCookie;
+  my ($u,$p) = &ReadCookie;
   if(!$u) {
     print "<p>Presently, you do not have a user name set.</p>";
   } else {
     print "<p>Your user name is set to '$u'.</p>";
   }
-  AdminForm;
+  &AdminForm;
 }
 
 sub ReadIn {
@@ -421,12 +511,14 @@ sub DoDiscuss {
   # re-write it, the decision was made that instead of DoDiscuss printing
   # output directly, it should return an array.
   my @returndiscuss = ();
-  if(!CanEdit) {
+  if(!&CanDiscuss) {
     return @returndiscuss;
   }
-  push @returndiscuss, "<form action='$ScriptName' method='post'>";
+  push @returndiscuss, "<form action='$ShortUrl$ShortScriptName' method='post'>";
+  push @returndiscuss, "<input type='hidden' name='doing' value='discuss' />";
+  push @returndiscuss, "<input type='hidden' name='file' value='$ShortPage' />";
   push @returndiscuss, "<textarea name='comment' cols='80' rows='5'>$NewComment</textarea>";
-  push @returndiscuss, "Name: <input type='text' name='uname' width='8' /> ";
+  push @returndiscuss, "Name: <input type='text' name='uname' width='12' value='$UserName' /> ";
   push @returndiscuss, "URL (optional): <input type='text' name='url' width='12' />";
   push @returndiscuss, "<input type='submit' value='Save' />";
   push @returndiscuss, "</form>";
@@ -435,7 +527,7 @@ sub DoDiscuss {
 }
 
 sub DoRecentChanges {
-
+  print "<hr/><p>Showing recent changes:</p>";
 }
 
 sub DoSearch {
@@ -447,7 +539,7 @@ sub DoHistory {
 }
 
 sub FriendlyTime {
-  my $rcvd = $_ if $_;
+  my ($rcvd) = @_ if @_ >= 0;
   # FriendlyTime gives us a regular time rather than num of seconds
   $TimeStamp = time() unless $TimeStamp;	# If it wasn't set before...
   my $tv = $TimeStamp;
@@ -458,7 +550,42 @@ sub FriendlyTime {
   return ($gmtime, $localtime);
 }
 
+sub Posting {
+  #my $action = $FORM{doing};
+  my ($action) = @_ if @_ >= 0;
+  #return unless $action;
+  if($action eq 'login') {
+    &SetCookie;
+  }
+  if($action eq 'editing') {
+    if($FORM{'whattodo'} eq "Cancel") {
+      &UnLock($FORM{'file'});
+    } else {
+      &WriteFile($FORM{'file'}, $FORM{'text'});
+    }
+  }
+}
+
+sub DoVisit {
+  my $logentry = "$UserIP $TimeStamp $ShortPage ";
+  if($command) { $logentry .= "($command) "; }
+  $logentry .= "$UserName";
+  open(LOGFILE,">>$VisitorLog");
+  print LOGFILE "$logentry\n";
+  close(LOGFILE);
+}
+
+sub DoMaint {
+
+}
+
 sub DoRequest {
+  # Are we receiving something?
+  if(&ReadIn) {
+    &Posting($FORM{doing});
+    #return;
+  }
+
   # HTTP Header
   print "Content-type: text/html\n\n";
 
@@ -484,14 +611,15 @@ sub DoRequest {
       print DoDiscuss;
     }
   }
-
   # Footer
   print Interpolate($Footer);
 }
 
 ## START
-Init;		# Load
-DoRequest;	# Handle the request
+&Init;		# Load
+&DoRequest;	# Handle the request
+&DoVisit;	# Log visitor
+&DoMaint;	# Run maintenance commands
 1;	# In case we're being called elsewhere
 
 __DATA__
@@ -564,6 +692,10 @@ textarea {
   width: 100%;
 }
 
+.navbar a {
+  padding-right: 1ex;
+}
+
 @media print {
 body { font:11pt "Neep", "Arial", sans-serif; }
 a, a:link, a:visited { color:#000; text-decoration:none; font-style:oblique; font-weight:normal; }
@@ -577,8 +709,8 @@ pre { border:0; font-size:10pt; }
 </style>
 </head>
 <body>
-<div class="header"><a href="$Url$DefaultPage">$DefaultPage</a> 
-<a href="RecentChanges">Recent Changes</a> $NavBar
+<div class="header">
+<span class="navbar">$NavBar</span>
 <h1><a title="Search for references to $ShortPage" rel="nofollow" href="$ShortUrl?do=search&page=$ShortPage">$PageName</a></h1></div>
 <div class="wrapper">
 !!CONTENT!!
@@ -586,10 +718,10 @@ pre { border:0; font-size:10pt; }
 <div class="close"></div>
 <div class="footer">
 <hr/>
-$DiscussText
+<span class="navbar">$DiscussText
 $EditText
 $RevisionsText
-<a title="Administration options" rel="nofollow" href="$ShortUrl?do=admin&page=admin">Admin</a><span style="float:right;"><strong>$SiteName</strong>
+<a title="Administration options" rel="nofollow" href="$ShortUrl?do=admin&page=admin">Admin</a></span><span style="float:right;"><strong>$SiteName</strong>
 is powered by <em>Aneuch</em>.</span>
 <span class="time"><br/>
 $EditString</span>
