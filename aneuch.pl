@@ -30,28 +30,26 @@
 package Aneuch;
 use strict;
 use POSIX qw(strftime);
+#use CGI::Carp qw(fatalsToBrowser);
 # Some variables
 use vars qw($DataDir $SiteName $Page $ShortPage @Passwords $PageDir $ArchiveDir
 $ShortUrl $SiteMode $ScriptName $ShortScriptName $Header $Footer $PluginDir 
 $Url $DiscussText $DiscussPrefix $DiscussLink $DefaultPage $CookieName 
 $PageName %FORM $TempDir @Messages $command $contents @Plugins $TimeStamp
 $PostFooter $TimeZone $VERSION $EditText $RevisionsText $NewPage $NewComment
-$NavBar $ConfFile $UserIP $UserName $VisitorLog $LockExpire);
+$NavBar $ConfFile $UserIP $UserName $VisitorLog $LockExpire %Filec $MTime
+$RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog);
 my %srvr = (
   80 => 'http://',
   443 => 'https://',
-);
-my %commandtitle = (
-  ':admin' => 'Administration',
-  ':edit' => "Edit $ShortPage",
-  ':search' => "Search $ShortPage",
-  ':history' => "History for $ShortPage",
 );
 my %Commands = (
   admin => \&DoAdmin,
   edit => \&DoEdit,
   search => \&DoSearch,
   history => \&DoHistory,
+  random => \&DoRandom,
+  diff => \&DoDiff,
 );
 
 $VERSION = '0.1';
@@ -78,6 +76,9 @@ sub InitVars {
   $CookieName = 'Aneuch' unless $CookieName;	# Default cookie name
   $TimeZone = 0 unless $TimeZone;		# Default to GMT, 1=localtime
   $LockExpire = 60*5 unless $LockExpire;	# 5 mins, unless set elsewhere
+  $Debug = 0 unless $Debug;			# Assume no debug
+  $MaxVisitorLog = 1000 unless $MaxVisitorLog;	# Keep at most 1000 entries in
+						#  visitor log
 
   # Some cleanup
   #  Remove trailing slash from $DataDir, if it exists
@@ -96,7 +97,7 @@ sub InitVars {
   $Page =~ s!^/!!;		# Remove leading slash, if it exists
   $Page =~ s/ /_/g;		# Convert spaces to underscore
   $Page =~ s!\.{2,}!!g;		# Remove every instance of double period
-  if($Page =~ m/^?do=(.*)&page=(.*)$/) {# We're getting a command directive
+  if($Page =~ m/^?do=(.*);page=(.*)$/) {# We're getting a command directive
     $command = $1;
     $Page = $2;
     $command =~ s/^\?//;	# Get rid of '?', if it's there.
@@ -104,7 +105,10 @@ sub InitVars {
   if($Page eq "") { $Page = $DefaultPage };	# Default if blank
   #$Page =~ s/\.[a-z]{3,4}$/.txt/;		# If extension, change to .txt
   #if($Page !~ m/\.[a-z]{3}$/) { $Page .= ".txt"; }	# If none, default
-  $Page =~ s/\.[\w]{3,4}$//;		# Remove all extensions
+  if($Page =~ m/\.(\d+)$/) {
+    $PageRevision = $1;
+  }
+  $Page =~ s/\.[\w\d]+$//;		# Remove all extensions
   $ShortPage = $Page;			# ShortPage is Page sans extension
   $ShortPage =~ s/\.[a-z]{3,4}$//;
   $PageName = $ShortPage;		# PageName is ShortPage with spaces
@@ -132,11 +136,11 @@ sub InitVars {
       $DiscussText = '<a title="Return to ' . $DiscussText . '" href="' . $DiscussLink . '">' . $DiscussText . '</a>';
     }
     if(&CanEdit) {
-      $EditText = '<a title="Click to edit this page" rel="nofollow" href="' . $ShortUrl . '?do=edit&page=' . $ShortPage . '">Edit ' . $PageName . '</a>';
+      $EditText = '<a title="Click to edit this page" rel="nofollow" href="' . $ShortUrl . '?do=edit;page=' . $ShortPage . '">Edit ' . $PageName . '</a>';
     } else {
-      $EditText = '<a title="Read only page" rel="nofollow" href="' . $ShortUrl . '?do=edit&page=' . $ShortPage . '">This page is read only</a>';
+      $EditText = '<a title="Read only page" rel="nofollow" href="' . $ShortUrl . '?do=edit;page=' . $ShortPage . '">This page is read only</a>';
     }
-    $RevisionsText = '<a title="Click here to see revision history" rel="nofollow" href="' . $ShortUrl . '?do=history&page=' . $ShortPage . '">View page history</a>';
+    $RevisionsText = '<a title="Click here to see revision history" rel="nofollow" href="' . $ShortUrl . '?do=history;page=' . $ShortPage . '">View page history</a>';
   }
 
   # If we're a command, change the page title
@@ -242,20 +246,20 @@ sub Markup {
     push @build, $line;
   }
   # Ok, now let's do paragraphs.
-  my $prevblank = 0;    # Assume false
+  my $prevblank = 1;    # Assume true
   my $openp = 0;        # Assume false
   my $i = 0;
   for($i=0;$i<=$#build;$i++) {
-    if($prevblank and ($build[$i] !~ m/^<[h]/) and ($build[$i] ne '')) {
+    if($prevblank and ($build[$i] !~ m/^<(h|div)/) and ($build[$i] ne '')) {
       $prevblank = 0;
       if(!$openp) {
         $build[$i] = "<p>".$build[$i];
         $openp = 1;
       }
     }
-    if(($build[$i] =~ m/^<[h]/) || ($build[$i] eq '')) {
+    if(($build[$i] =~ m/^<(h|div)/) || ($build[$i] eq '')) {
       $prevblank = 1;
-      if(($i > 0) && ($build[$i-1] !~ m/^<[h]/) && ($openp)) {
+      if(($i > 0) && ($build[$i-1] !~ m/^<(h|div)/) && ($openp)) {
         $build[$i-1] .= "</p>"; $openp = 0;
       }
     }
@@ -282,15 +286,26 @@ sub Interpolate {
 sub GetFile {
   my ($rt, $file) = @_;
   my @return = qw();
-  my $ret;
+  my $currentkey;
+  $MTime = '';
   if(-f "${rt}/${file}") {
     open(FH,"${rt}/${file}") or push @Messages, $!; #die $!;
-    @return = <FH>;
+    #@return = <FH>;
+    while(<FH>) {
+      #chomp;
+      $currentkey = $1, next if /^(\S+)/;
+      s/^\s{2}//;
+      push @{$Filec{$currentkey}}, $_;
+    }
     close(FH);
+    #chomp(@return);
+    ($MTime) = @{$Filec{ts}};
+    $MTime = (&FriendlyTime($MTime))[$TimeZone];
+    s/\r//g for @{$Filec{text}}; #@return;
+    return @{$Filec{text}}; #@return;
+  } else {
+    return ();
   }
-  #chomp(@return);
-  s/\r//g for @return;
-  return @return;
 }
 
 sub InitDirs {
@@ -304,6 +319,7 @@ sub InitDirs {
   $TempDir = "$DataDir/temp";
   eval { mkdir $TempDir unless -d $TempDir; }; push @Messages, $@ if $@;
   $VisitorLog = "$DataDir/visitors.log";
+  $RecentChangesLog = "$DataDir/rc.log";
 }
 
 sub LoadPlugins {
@@ -362,6 +378,33 @@ sub CanDiscuss {
   }
 }
 
+sub LogRecent {
+  my ($file,$un,$mess) = @_;
+  # Log for RecentChanges
+  my $day; my $time;
+  my @rc = ();
+  if($TimeZone == 0) {	# GMT
+    $day = strftime "%Y%m%d", gmtime($TimeStamp);
+    $time = strftime "%H%M%S", gmtime($TimeStamp);
+  } else {		# Local
+    $day = strftime "%Y%m%d", localtime($TimeStamp);
+    $time = strftime "%H%M%S", localtime($TimeStamp);
+  }
+  if(-f "$RecentChangesLog") {
+    open(RCL,"<$RecentChangesLog") or push @Messages, "LogRecent: Unable to read from $RecentChangesLog: $!";
+    @rc = <RCL>;
+    close(RCL);
+  }
+  # Remove any old entry...
+  @rc = grep(!/^$day(\d{6})\t$file/,@rc);
+  # Now update...
+  push @rc, "$day$time\t$file\t$un\t$mess\n";
+  # Now write it back out...
+  open(RCL,">$RecentChangesLog") or push @Messages, "LogRecent: Unable to write to $RecentChangesLog: $!";
+  print RCL @rc;
+  close(RCL);
+}
+
 sub DoEdit {
   my $canedit = &CanEdit;
   # Let's begin
@@ -380,7 +423,7 @@ sub DoEdit {
   if($canedit) {
     # Set a lock
     if(&SetLock) {
-      print 'Log message: <input type="text" name="log" size="60" />';
+      print 'Summary: <input type="text" name="summary" size="60" />';
       print ' User name: <input type="text" name="uname" size="12" value="'.$UserName.'" />';
       print '<input type="submit" name="whattodo" value="Save" />';
       print '<input type="submit" name="whattodo" value="Cancel" />';
@@ -423,6 +466,7 @@ sub UnLock {
 sub Index {
   my $pg = $ShortPage;
   ($pg) = @_ if @_ >= 1;
+  if($pg =~ m/^$DiscussPrefix/) { return; }	# Don't index Discussion pages
   open(INDEX,"<$DataDir/pageindex") or push @Messages, "Index: Unable to open pageindex for read: $!";
   my @pagelist = <INDEX>;
   close(INDEX);
@@ -445,14 +489,60 @@ sub DoArchive {
 }
 
 sub WriteFile {
-  my ($file, $content) = @_;
+  my ($file, $content, $user) = @_;
   &DoArchive($file);
   $content =~ s/\r//g;
+  %Filec = ();
+  # Build file information
+  @{$Filec{summary}} = ($FORM{summary});
+  @{$Filec{ip}} = ($UserIP);
+  @{$Filec{author}} = $user; #($FORM{uname}) or ($UserName);
+  @{$Filec{ts}} = ($TimeStamp);
+  @{$Filec{text}} = split(/\n/,$content);
   open(FILE, ">$PageDir/$file") or push @Messages, "Unable to write to $file: $!";
-  print FILE $content;
+  #print FILE $content;
+  foreach my $key (sort keys %Filec) {
+    print FILE "$key\n";
+    foreach my $c (@{$Filec{$key}}) {
+      print FILE "  $c\n";
+    }
+  }
   close(FILE);
   &UnLock($file);
   &Index($file);
+  &LogRecent($file,$user,$FORM{summary});
+}
+
+sub AppendFile {
+  my ($file, $content, $user, $url) = @_;
+  my $sig;
+  $content =~ s/\r//g;
+  my %F = ();
+  @{$F{summary}} = ("Comment by $user");
+  @{$F{ip}} = ($UserIP);
+  @{$F{author}} = ($user);
+  @{$F{ts}} = ($TimeStamp);
+  #@{$F{text}} = ();
+  chomp(@{$F{text}} = &GetFile($PageDir, $file));
+  push @{$F{text}}, split(/\n/,$content);
+  push @{$F{text}}, "\n";
+  if(!$url) {
+    $url = $user;
+  }
+  $sig = '&mdash; [['.$url.'|'.$user.']] //' . (&FriendlyTime($TimeStamp))[$TimeZone] . "// ($UserIP)";
+  #} else {
+  #  $sig = $user.' //' . (&FriendlyTime($TimeStamp))[$TimeZone] . "//";
+  #}
+  push @{$F{text}}, ($sig, "____\n");
+  open(FILE, ">$PageDir/$file") or push @Messages, "AppendFile: Unable to append to $file: $!";
+  foreach my $key (sort keys %F) {
+    print FILE "$key\n";
+    foreach my $c (@{$F{$key}}) {
+      print FILE "  $c\n";
+    }
+  }
+  close(FILE);
+  &LogRecent($file,$user,"Comment by $user");
 }
 
 sub AdminForm {
@@ -464,21 +554,29 @@ sub AdminForm {
 }
 
 sub DoAdmin {
+  my ($u,$p) = &ReadCookie;
   if($ShortPage eq 'version') {
     print '<p>Versions used on this site:</p>';
     foreach my $c (@Plugins) {
       print "<p>$c</p>\n";
     }
-  }
-  print '<p>You may:<ul><li><a href="'.$ShortUrl.'?do=admin&page=version">View version information</a></li>';
-  print '</ul></p>';
-  my ($u,$p) = &ReadCookie;
-  if(!$u) {
-    print "<p>Presently, you do not have a user name set.</p>";
+  } elsif($ShortPage eq 'password') {
+    if(!$u) {
+      print "<p>Presently, you do not have a user name set.</p>";
+    } else {
+      print "<p>Your user name is set to '$u'.</p>";
+    }
+    &AdminForm;
   } else {
-    print "<p>Your user name is set to '$u'.</p>";
+    print '<p>You may:<ul><li><a href="'.$ShortUrl.'?do=admin;page=password">Authenticate</a></li>';
+    if($p) {
+      print '<li><a href="'.$ShortUrl.'?do=admin;page=version">View version information</a></li>';
+      print '<li><a href="'.$ShortUrl.'?do=admin;page=password">Authenticate</a></li>';
+      print '<li><a href="'.$ShortUrl.'?do=admin;page=index">List all pages</a></li>';
+      print '<li><a href="'.$ShortUrl.'?do=admin;page=rmlocks">Force delete page locks</a></li>';
+    }
+    print '</ul></p>';
   }
-  &AdminForm;
 }
 
 sub ReadIn {
@@ -517,7 +615,7 @@ sub DoDiscuss {
   push @returndiscuss, "<form action='$ShortUrl$ShortScriptName' method='post'>";
   push @returndiscuss, "<input type='hidden' name='doing' value='discuss' />";
   push @returndiscuss, "<input type='hidden' name='file' value='$ShortPage' />";
-  push @returndiscuss, "<textarea name='comment' cols='80' rows='5'>$NewComment</textarea>";
+  push @returndiscuss, "<textarea name='text' cols='80' rows='5'>$NewComment</textarea>";
   push @returndiscuss, "Name: <input type='text' name='uname' width='12' value='$UserName' /> ";
   push @returndiscuss, "URL (optional): <input type='text' name='url' width='12' />";
   push @returndiscuss, "<input type='submit' value='Save' />";
@@ -527,15 +625,92 @@ sub DoDiscuss {
 }
 
 sub DoRecentChanges {
-  print "<hr/><p>Showing recent changes:</p>";
+  print "<hr/><h2>Showing recent changes:</h2>";
+  my @rc;
+  my $curdate;
+  my $tz;
+  my $openul=0;
+  open(RCF,"<$RecentChangesLog") or push @Messages, "DoRecentChanges: Unable to read $RecentChangesLog: $!";
+  @rc = <RCF>;
+  close(RCF);
+  chomp(@rc);
+  if($TimeZone == 0) {
+    $tz = "UTC";
+  } else {
+    $tz = strftime "%Z", localtime(time);
+  }
+  # Sort them
+  @rc = sort { $b <=> $a } (@rc);
+  # Now show them...
+  foreach my $entry (@rc) {
+    my @ent = split(/\t/,$entry);
+    my $day = $ent[0];
+    $day =~ s#^(\d{4})(\d{2})(\d{2})\d{6}$#$1/$2/$3#;
+    my $tme = $ent[0];
+    $tme =~ s#^\d{8}(\d{2})(\d{2})\d{2}$#$1:$2#;
+    if($curdate ne $day) { 
+      $curdate = $day;
+      if($openul) { print "</ul>"; }
+      print "<h3>$day</h3><ul>";
+      $openul = 1;
+    }
+    print "<li>$tme $tz (<a href='$ShortUrl?do=history;page=$ent[1]'>history</a>) ";
+    print "<a href='$ShortUrl$ent[1]'>$ent[1]</a> . . . . $ent[2]<br/>$ent[3]</li>";
+  }
 }
 
 sub DoSearch {
 
 }
 
-sub DoHistory {
+sub YMD {
+  my $time = shift;
+  if($TimeZone == 0) {	# GMT
+    return strftime "%Y/%m/%d", gmtime($time);
+  } else {		# Local
+    return strftime "%Y/%m/%d", localtime($time);
+  }
+}
 
+sub HM {
+  my $time = shift;
+  if($TimeZone == 0) {	# GMT
+    return strftime "%H:%M UTC", gmtime($time);
+  } else {		# Local
+    return strftime "%H:%M %Z", localtime($time);
+  }
+}
+
+sub DoHistory {
+  my $shortdir = substr($Page,0,1);   # Get first letter
+  $shortdir =~ tr/[a-z]/[A-Z]/;       # Capital
+  if($ArchiveDir and $shortdir and -d "$ArchiveDir/$shortdir") {
+    my @history = (glob("$ArchiveDir/$shortdir/$Page.*"));
+    @history = reverse(@history);
+    my $currentday;
+    my $revision = $#history + 3;
+    print "<h3>" . &YMD((stat("$PageDir/$Page"))[9]) . " (current)</h3>";
+    print "<p>" . &HM((stat("$PageDir/$Page"))[9]) . " ".
+    "<a href=\"$ShortUrl$Page\">Revision " . --$revision . "</a>";
+    print " . . . . " . &Trim(`grep -A 1 "author" $PageDir/$Page | tail -n1`);
+    print " &ndash; <strong>" . &Trim(`grep -A 1 "summary" $PageDir/$Page | tail -n1`);
+    print "</strong></p>";
+    foreach my $c (@history) {
+      my $ts = &Trim(`grep -A 1 "ts" $c | tail -n1`); #(stat($c))[9];
+      my $day = &YMD($ts);
+      if($day ne $currentday) {
+	$currentday = $day;
+	print "<h3>$day</h3>";
+      }
+      print "<p>" . &HM($ts) . " <a href=\"$ShortUrl$Page." . --$revision . "\"> Revision ".
+      $revision . "</a>";
+      print " . . . . " . &Trim(`grep -A 1 "author" $c | tail -n1`);
+      print " &ndash; <strong>" . &Trim(`grep -A 1 "summary" $c | tail -n1`);
+      print "</strong></p>";
+    }
+  } else {
+    print "<p>This page does not appear to have a history. Wouldn't that be nice?</p>";
+  }
 }
 
 sub FriendlyTime {
@@ -545,7 +720,7 @@ sub FriendlyTime {
   my $tv = $TimeStamp;
   $tv = $rcvd if $rcvd;
   my $localtime = strftime "%a %b %e %H:%M:%S %Z %Y", localtime($tv);
-  my $gmtime = strftime "%a %b %e %H:%M:%S GMT %Y", gmtime($tv);
+  my $gmtime = strftime "%a %b %e %H:%M:%S UTC %Y", gmtime($tv);
   # Send them back in an array... GMT first, local second.
   return ($gmtime, $localtime);
 }
@@ -561,13 +736,17 @@ sub Posting {
     if($FORM{'whattodo'} eq "Cancel") {
       &UnLock($FORM{'file'});
     } else {
-      &WriteFile($FORM{'file'}, $FORM{'text'});
+      &WriteFile($FORM{'file'}, $FORM{'text'}, $FORM{'uname'});
     }
   }
+  if($action eq 'discuss') {
+    &AppendFile($FORM{'file'}, $FORM{'text'}, $FORM{'uname'}, $FORM{'url'});
+  }
+  print "Location: ".$Url.$FORM{'file'}."\n\n";
 }
 
 sub DoVisit {
-  my $logentry = "$UserIP $TimeStamp $ShortPage ";
+  my $logentry = "$UserIP " . (&FriendlyTime($TimeStamp))[$TimeZone] . " $ShortPage ";
   if($command) { $logentry .= "($command) "; }
   $logentry .= "$UserName";
   open(LOGFILE,">>$VisitorLog");
@@ -583,7 +762,7 @@ sub DoRequest {
   # Are we receiving something?
   if(&ReadIn) {
     &Posting($FORM{doing});
-    #return;
+    return;
   }
 
   # HTTP Header
@@ -598,11 +777,30 @@ sub DoRequest {
     if(! -f "$PageDir/$Page") {
       print $NewPage;
     } else {
-      if(exists &Markup) {                # If there's markup defined, do markup
-        print join("\n", Markup(GetFile($PageDir, $Page)));
+      if($PageRevision) {	# We're doing a previous page...
+        my $shortdir = substr($Page,0,1);   # Get first letter
+        $shortdir =~ tr/[a-z]/[A-Z]/;       # Capital
+	my @rc = (glob("$ArchiveDir/$shortdir/$Page.*"));
+	#@rc = reverse(@rc);
+	print "<h1>Revision $PageRevision</h1>\n<a href=\"$ShortUrl$ShortPage\">".
+        "view current</a><hr/>\n";
+        my $ptg = $rc[$PageRevision-1];
+	$ptg =~ s#^$ArchiveDir/$shortdir/##;
+	if(exists &Markup) {
+	  print join("\n", Markup(GetFile("$ArchiveDir/$shortdir", $ptg)));
+	} else {
+	  print join("\n", GetFile("$ArchiveDir/$shortdir", $ptg));
+	}
       } else {
-        print join("\n", GetFile($PageDir, $Page));
+        if(exists &Markup) {                # If there's markup defined, do markup
+          print join("\n", Markup(GetFile($PageDir, $Page)));
+        } else {
+          print join("\n", GetFile($PageDir, $Page));
+        }
       }
+    }
+    if($MTime) {
+      $MTime = "Last modified: " . $MTime . " by " . (@{$Filec{author}})[0];
     }
     if($ShortPage eq 'RecentChanges') {
       DoRecentChanges;
@@ -610,6 +808,9 @@ sub DoRequest {
     if($ShortPage =~ m/^$DiscussPrefix/ and $SiteMode < 2) {
       print DoDiscuss;
     }
+  }
+  if($Debug) {
+    $DebugMessages = join("<br/>", @Messages);
   }
   # Footer
   print Interpolate($Footer);
@@ -626,7 +827,7 @@ __DATA__
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml"><head>
 <title>$SiteName: $PageName</title>
-<link rel="alternate" type="application/wiki" title="Edit this page" href="$Url?do=edit&page=$ShortPage" />
+<link rel="alternate" type="application/wiki" title="Edit this page" href="$Url?do=edit;page=$ShortPage" />
 <meta name="robots" content="INDEX,FOLLOW" />
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
 <meta name="generator" content="Aneuch $VERSION" />
@@ -696,6 +897,19 @@ textarea {
   padding-right: 1ex;
 }
 
+.mtime {
+  font-size:0.8em;
+  color:gray;
+}
+
+div.wrapper img {
+  padding:5px;
+  margin:10px;
+  border:1px solid rgb(221,221,221);
+  background-color: rgb(243,243,243);
+  border-radius: 3px 3px 3px 3px;
+}
+
 @media print {
 body { font:11pt "Neep", "Arial", sans-serif; }
 a, a:link, a:visited { color:#000; text-decoration:none; font-style:oblique; font-weight:normal; }
@@ -711,7 +925,7 @@ pre { border:0; font-size:10pt; }
 <body>
 <div class="header">
 <span class="navbar">$NavBar</span>
-<h1><a title="Search for references to $ShortPage" rel="nofollow" href="$ShortUrl?do=search&page=$ShortPage">$PageName</a></h1></div>
+<h1><a title="Search for references to $ShortPage" rel="nofollow" href="$ShortUrl?do=search;page=$ShortPage">$PageName</a></h1></div>
 <div class="wrapper">
 !!CONTENT!!
 </div>
@@ -721,11 +935,13 @@ pre { border:0; font-size:10pt; }
 <span class="navbar">$DiscussText
 $EditText
 $RevisionsText
-<a title="Administration options" rel="nofollow" href="$ShortUrl?do=admin&page=admin">Admin</a></span><span style="float:right;"><strong>$SiteName</strong>
-is powered by <em>Aneuch</em>.</span>
-<span class="time"><br/>
-$EditString</span>
+<a title="Administration options" rel="nofollow" href="$ShortUrl?do=admin;page=admin">Admin</a></span><span style="float:right;"><strong>$SiteName</strong>
+is powered by <em>Aneuch</em>.</span><br/>
+<span class="mtime">$MTime</span><br/>
 $PostFooter
+</div>
+<div class="debug">
+$DebugMessages
 </div>
 </body>
 </html>
