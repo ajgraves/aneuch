@@ -1,0 +1,29 @@
+Aneuch README file
+
+Alternatively, all documentation may be found online at:
+  http://aneuch.myunixhost.com
+
+Hi there, and welcome to the world of wikis. I hope you find Aneuch perfect
+for your usage. Use this file to help you get started.
+
+INSTALLATION
+Installing Aneuch is easy. Drop the file 'aneuch.pl' in your site's directory.
+Some hosts make you use a cgi-bin, others do not. If you are unsure, check
+with your web host.
+
+You may place the file 'config.pl' in the same directory. If you choose to 
+place it elsewhere, you will need to tell Aneuch where to find it. You can do
+so by either editing Aneuch directly, or by creating a wrapper script. Here
+is an example wrapper:
+
+#!/usr/bin/perl
+package Aneuch;
+$ConfFile = '/tmp/aneuch/config.pl';
+do 'aneuch.pl';
+
+Change the $ConfFile line to point to your actual config file, and you're off!
+
+You can either use the wrapper example above, and name it index.cgi, or you
+can rename aneuch.pl to index.cgi.
+
+If you have any questions, refer to the website listed above.
