@@ -202,7 +202,7 @@ sub Markup {
     $line =~ s#^=(.*?)(=*)$#<h1>$1</h1>#;
 
     # Links
-    $line =~ s#\[{2}(htt(p|ps)://.*?)\|(.*?)\]{2}#<a href="$1" class="external" target="_blank" title="External link: $1">$3</a>#g;
+    $line =~ s#\[{2}(htt(p|ps)://.*?)\|(.*?)\]{2}#<a href="$1" class="external" target="_blank" title="External link: $1" rel="nofollow">$3</a>#g;
     $line =~ s#\[{2}(.*?)\|{1}(.*?)\]{2}#<a href="$1" title="$1">$2</a>#g;
     $line =~ s#\[{2}(.*?)\]{2}#<a href="$1" title="$1">$1</a>#g;
 
@@ -466,7 +466,7 @@ sub UnLock {
 sub Index {
   my $pg = $ShortPage;
   ($pg) = @_ if @_ >= 1;
-  if($pg =~ m/^$DiscussPrefix/) { return; }	# Don't index Discussion pages
+  #if($pg =~ m/^$DiscussPrefix/) { return; }	# Don't index Discussion pages
   open(INDEX,"<$DataDir/pageindex") or push @Messages, "Index: Unable to open pageindex for read: $!";
   my @pagelist = <INDEX>;
   close(INDEX);
@@ -567,12 +567,31 @@ sub DoAdmin {
       print "<p>Your user name is set to '$u'.</p>";
     }
     &AdminForm;
+  } elsif($ShortPage eq 'index') {
+    my @indx;
+    open(INDEX,"<$DataDir/pageindex") or push @Messages, "Admin.index: Unable to read from pageindex: $!";
+    @indx = <INDEX>;
+    close(INDEX);
+    @indx = sort(@indx);
+    print "<h3>" . @indx . " pages found.</h3><p>";
+    foreach my $pg (@indx) {
+      print "<a href=\"$ShortUrl$pg\">$pg</a><br/>";
+    }
+    print "</p>";
+  } elsif($ShortPage eq 'reindex') {
+    my @files = (glob("$PageDir/*"));
+    s#^$PageDir/## for @files;
+    @files = sort(@files);
+    open(INDEX,">$DataDir/pageindex") or push @Messages, "Admin.reindex: Unable to write to pageindex: $!";
+    print INDEX join("\n",@files) . "\n";
+    close(INDEX);
+    print "<p>Reindex complete. Check page index.</p>";
   } else {
     print '<p>You may:<ul><li><a href="'.$ShortUrl.'?do=admin;page=password">Authenticate</a></li>';
     if($p) {
       print '<li><a href="'.$ShortUrl.'?do=admin;page=version">View version information</a></li>';
-      print '<li><a href="'.$ShortUrl.'?do=admin;page=password">Authenticate</a></li>';
       print '<li><a href="'.$ShortUrl.'?do=admin;page=index">List all pages</a></li>';
+      print '<li><a href="'.$ShortUrl.'?do=admin;page=reindex">Rebuild page index</a></li>';
       print '<li><a href="'.$ShortUrl.'?do=admin;page=rmlocks">Force delete page locks</a></li>';
     }
     print '</ul></p>';
@@ -625,7 +644,7 @@ sub DoDiscuss {
 }
 
 sub DoRecentChanges {
-  print "<hr/><h2>Showing recent changes:</h2>";
+  print "<hr/>"; #<h2>Showing recent changes:</h2>";
   my @rc;
   my $curdate;
   my $tz;
@@ -694,20 +713,21 @@ sub DoHistory {
     "<a href=\"$ShortUrl$Page\">Revision " . --$revision . "</a>";
     print " . . . . " . &Trim(`grep -A 1 "author" $PageDir/$Page | tail -n1`);
     print " &ndash; <strong>" . &Trim(`grep -A 1 "summary" $PageDir/$Page | tail -n1`);
-    print "</strong></p>";
+    print "</strong>";
     foreach my $c (@history) {
       my $ts = &Trim(`grep -A 1 "ts" $c | tail -n1`); #(stat($c))[9];
       my $day = &YMD($ts);
       if($day ne $currentday) {
 	$currentday = $day;
-	print "<h3>$day</h3>";
+	print "</p><h3>$day</h3><p>";
       }
-      print "<p>" . &HM($ts) . " <a href=\"$ShortUrl$Page." . --$revision . "\"> Revision ".
+      print &HM($ts) . " <a href=\"$ShortUrl$Page." . --$revision . "\"> Revision ".
       $revision . "</a>";
       print " . . . . " . &Trim(`grep -A 1 "author" $c | tail -n1`);
       print " &ndash; <strong>" . &Trim(`grep -A 1 "summary" $c | tail -n1`);
-      print "</strong></p>";
+      print "</strong><br/>";
     }
+    print "</p>";
   } else {
     print "<p>This page does not appear to have a history. Wouldn't that be nice?</p>";
   }
@@ -729,29 +749,39 @@ sub Posting {
   #my $action = $FORM{doing};
   my ($action) = @_ if @_ >= 0;
   #return unless $action;
+  $ShortPage = $FORM{'file'};
   if($action eq 'login') {
     &SetCookie;
   }
-  if($action eq 'editing') {
+  if(($action eq 'editing') and &CanEdit) {
     if($FORM{'whattodo'} eq "Cancel") {
       &UnLock($FORM{'file'});
     } else {
       &WriteFile($FORM{'file'}, $FORM{'text'}, $FORM{'uname'});
     }
   }
-  if($action eq 'discuss') {
+  if(($action eq 'discuss') and &CanDiscuss) {
     &AppendFile($FORM{'file'}, $FORM{'text'}, $FORM{'uname'}, $FORM{'url'});
   }
   print "Location: ".$Url.$FORM{'file'}."\n\n";
 }
 
 sub DoVisit {
-  my $logentry = "$UserIP " . (&FriendlyTime($TimeStamp))[$TimeZone] . " $ShortPage ";
+  my $logentry = "$UserIP $TimeStamp $ShortPage ";
   if($command) { $logentry .= "($command) "; }
   $logentry .= "$UserName";
-  open(LOGFILE,">>$VisitorLog");
+  #my @rc;
+  #open(LOGFILE,"<$VisitorLog");
+  #@rc = <LOGFILE>;
+  #close(LOGFILE);
+  #push @rc, "$logentry\n";
+  #if($#rc + 1 >= $MaxVisitorLog) {
+  #until $#rc <= ($MaxVisitorLog - 1) shift @rc;
+  open(LOGFILE,">$VisitorLog");
   print LOGFILE "$logentry\n";
+  #print LOGFILE join("",@rc);
   close(LOGFILE);
+  system("tail -n $MaxVisitorLog > $VisitorLog");
 }
 
 sub DoMaint {
@@ -908,6 +938,10 @@ div.wrapper img {
   border:1px solid rgb(221,221,221);
   background-color: rgb(243,243,243);
   border-radius: 3px 3px 3px 3px;
+}
+
+h1.hr, h2.hr, h3.hr, h4.hr, h5.hr {
+  border-bottom: 2px solid rgb(0,0,0);
 }
 
 @media print {
