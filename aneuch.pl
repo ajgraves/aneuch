@@ -625,6 +625,7 @@ sub AppendFile {
   }
   close(FILE);
   &LogRecent($file,$user,"Comment by $user");
+  &Index;
 }
 
 sub AdminForm {
