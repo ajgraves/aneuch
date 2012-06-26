@@ -38,21 +38,14 @@ $Url $DiscussText $DiscussPrefix $DiscussLink $DefaultPage $CookieName
 $PageName %FORM $TempDir @Messages $command $contents @Plugins $TimeStamp
 $PostFooter $TimeZone $VERSION $EditText $RevisionsText $NewPage $NewComment
 $NavBar $ConfFile $UserIP $UserName $VisitorLog $LockExpire %Filec $MTime
-$RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog);
+$RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog
+%Commands %AdminActions %AdminList $RemoveOldTemp);
 my %srvr = (
   80 => 'http://',
   443 => 'https://',
 );
-my %Commands = (
-  admin => \&DoAdmin,
-  edit => \&DoEdit,
-  search => \&DoSearch,
-  history => \&DoHistory,
-  random => \&DoRandom,
-  diff => \&DoDiff,
-);
 
-$VERSION = '0.1';
+$VERSION = '0.10 (alpha)';
 
 # Subs
 sub InitConfig  {
@@ -79,6 +72,7 @@ sub InitVars {
   $Debug = 0 unless $Debug;			# Assume no debug
   $MaxVisitorLog = 1000 unless $MaxVisitorLog;	# Keep at most 1000 entries in
 						#  visitor log
+  $RemoveOldTemp = 60*60*24*7 unless $RemoveOldTemp;	# Remove files in temp > 7 days
 
   # Some cleanup
   #  Remove trailing slash from $DataDir, if it exists
@@ -125,8 +119,9 @@ sub InitVars {
   if(!$command or $command ne 'admin') {
     if($ShortPage !~ m/^$DiscussPrefix/) {
       $DiscussLink = $ShortUrl . $DiscussPrefix . $ShortPage;
-      $DiscussText = $DiscussPrefix . $ShortPage;
+      $DiscussText = $DiscussPrefix;
       $DiscussText =~ s/_/ /g;
+      $DiscussText .= $ShortPage;
       $DiscussText = '<a title="' . $DiscussText . '" href="' . $DiscussLink . '">' . $DiscussText . '</a>';
     } else {
       $DiscussLink = $ShortPage;
@@ -136,7 +131,7 @@ sub InitVars {
       $DiscussText = '<a title="Return to ' . $DiscussText . '" href="' . $DiscussLink . '">' . $DiscussText . '</a>';
     }
     if(&CanEdit) {
-      $EditText = '<a title="Click to edit this page" rel="nofollow" href="' . $ShortUrl . '?do=edit;page=' . $ShortPage . '">Edit ' . $PageName . '</a>';
+      $EditText = '<a title="Click to edit this page" rel="nofollow" href="' . $ShortUrl . '?do=edit;page=' . $ShortPage . '">Edit ' . $ShortPage . '</a>';
     } else {
       $EditText = '<a title="Read only page" rel="nofollow" href="' . $ShortUrl . '?do=edit;page=' . $ShortPage . '">This page is read only</a>';
     }
@@ -158,9 +153,36 @@ sub InitVars {
   # Set visitor IP address
   $UserIP = $ENV{'REMOTE_ADDR'};
   ($UserName) = &ReadCookie;
+  if(!$UserName) { $UserName = $UserIP; }
 
   # Navbar
-  $NavBar = "<a href='$Url$DefaultPage'>$DefaultPage</a> <a href='".$ShortUrl."RecentChanges'>RecentChanges</a> " . $NavBar;
+  $NavBar = "<a href='$Url$DefaultPage'>$DefaultPage</a> <a href='".$ShortUrl.
+  "RecentChanges'>RecentChanges</a> " . $NavBar;
+
+  # For the Admin stuff
+  %Commands = (
+    admin => \&DoAdmin,
+    edit => \&DoEdit,
+    search => \&DoSearch,
+    history => \&DoHistory,
+    random => \&DoRandom,
+    diff => \&DoDiff,
+  );
+  %AdminActions = (
+    password => \&DoAdminPassword,
+    version => \&DoAdminVersion,
+    index => \&DoAdminIndex,
+    reindex => \&DoAdminReIndex,
+    rmlocks => \&DoAdminRemoveLocks,
+    visitors => \&DoAdminListVisitors,
+  );
+  %AdminList = (
+    version => 'View version information',
+    index => 'List all pages',
+    reindex => 'Rebuild page index',
+    rmlocks => 'Force delete page locks',
+    visitors => 'Display visitor log',
+  );
 }
 
 sub InitTemplate {
@@ -182,11 +204,19 @@ sub Markup {
   foreach my $line (@contents) {
     # Are we doing lists?
     # UL
-    if(($line =~ m/^[\s\t]*\*{1,5}[ \t]/) && (! $openul)) {$openul=1; push @build, "<ul>";}
-    if(($openul) && ($line !~ m/^[\s\t]*\*{1,5}[ \t]/)) {$openul=0; push @build, "</ul>";}
+    if(($line =~ m/^[\s\t]*\*{1,5}[ \t]/) && (! $openul)) {
+      $openul=1; push @build, "<ul>";
+    }
+    if(($openul) && ($line !~ m/^[\s\t]*\*{1,5}[ \t]/)) {
+      $openul=0; push @build, "</ul>";
+    }
     # OL
-    if(($line =~ m/^[\s\t]*#{1,}/) && (! $openol)) {$openol=1; push @build, "<ol>";}
-    if(($openol) && ($line !~ m/^[\s\t]*#{1,}/)) {$openol=0; push @build, "</ol>";}
+    if(($line =~ m/^[\s\t]*#{1,}/) && (! $openol)) {
+      $openol=1; push @build, "<ol>";
+    }
+    if(($openol) && ($line !~ m/^[\s\t]*#{1,}/)) {
+      $openol=0; push @build, "</ol>";
+    }
 
     # Get rid of comments
     #$line =~ s/^#//;
@@ -203,6 +233,7 @@ sub Markup {
 
     # Links
     $line =~ s#\[{2}(htt(p|ps)://.*?)\|(.*?)\]{2}#<a href="$1" class="external" target="_blank" title="External link: $1" rel="nofollow">$3</a>#g;
+    $line =~ s#\[{2}(htt(p|ps)://.*?)\]{2}#<a href="$1" class="external" target="_blank" title="External link: $1" rel="nofollow">$1</a>#g;
     $line =~ s#\[{2}(.*?)\|{1}(.*?)\]{2}#<a href="$1" title="$1">$2</a>#g;
     $line =~ s#\[{2}(.*?)\]{2}#<a href="$1" title="$1">$1</a>#g;
 
@@ -242,9 +273,15 @@ sub Markup {
     # Strikethrough
     $line =~ s#-{2}(.*?)-{2}#<del>$1</del>#g;
 
+    # Underline
+    $line =~ s#_{2}(.*?)_{2}#<span style="text-decoration:underline">$1</span>#g;
+
     # Add it
     push @build, $line;
   }
+  # Do we have anything open?
+  if($openol) { push @build, "</ol>"; }
+  if($openul) { push @build, "</ul>"; }
   # Ok, now let's do paragraphs.
   my $prevblank = 1;    # Assume true
   my $openp = 0;        # Assume false
@@ -359,6 +396,15 @@ sub SetCookie {
   #print "Location: $ShortUrl\n\n";
 }
 
+sub IsAdmin {
+  # Figure out if user has admin rights
+  my ($u, $p) = &ReadCookie;
+  if(@Passwords == 0) {		# If no password set...
+    return 1;
+  }
+  return scalar(grep(/^$p$/, @Passwords));
+}
+
 sub CanEdit {
   my ($u, $p) = &ReadCookie;
   my $matchedpass = grep(/^$p$/, @Passwords);
@@ -405,10 +451,38 @@ sub LogRecent {
   close(RCL);
 }
 
+sub RefreshLock {
+  # Refresh a lock on $Page
+  if(-f "$TempDir/$Page.lock") {
+    open(LOCK,"<$TempDir/$Page.lock") or push @Messages, "Error opening $Page.lock for read: $!";
+    my @lock = <LOCK>;
+    close(LOCK);
+    chomp(@lock);
+    if($lock[0] eq $UserIP and $lock[1] eq $UserName) {
+      $lock[2] = $TimeStamp;
+      open(LOCK,">$TempDir/$Page.lock") or push @Messages, "RefreshLock: Error opening $Page.lock for write: $!";
+      print LOCK join("\n", @lock);
+      close(LOCK);
+      return 1;
+    } else { return 0; }
+  } else { return 0; }
+}
+
 sub DoEdit {
   my $canedit = &CanEdit;
   # Let's begin
-  my $contents = join("", &GetFile($PageDir, $Page));
+  my $contents;
+  my @preview;
+  if(-f "$TempDir/$Page.$UserName") {
+    open(PREVIEW,"<$TempDir/$Page.$UserName") or push @Messages, "DoEdit: Unable to read from preview file $Page.$UserName: $!";
+    @preview = <PREVIEW>;
+    close(PREVIEW);
+    s/\r//g for @preview;
+    $contents = join("", @preview);
+    &RefreshLock;
+  } else {
+    $contents = join("", &GetFile($PageDir, $Page));
+  }
   $contents =~ s/</&lt;/g;            # Transform
   $contents =~ s/>/&gt;/g;
   if($canedit) {
@@ -419,13 +493,17 @@ sub DoEdit {
       print '<input type="hidden" name="mtime" value="' . (stat("$PageDir/$Page"))[9] . '">';
     }
   }
+  if(@preview) {
+    print "<div class=\"preview\">" . join("\n",&Markup(@preview)) . "</div>";
+  }
   print '<textarea name="text" cols="100" rows="25">' . $contents . '</textarea>';
   if($canedit) {
     # Set a lock
-    if(&SetLock) {
+    if(@preview or &SetLock) {
       print 'Summary: <input type="text" name="summary" size="60" />';
-      print ' User name: <input type="text" name="uname" size="12" value="'.$UserName.'" />';
-      print '<input type="submit" name="whattodo" value="Save" />';
+      print ' User name: <input type="text" name="uname" size="12" value="'.$UserName.'" /> ';
+      print '<input type="submit" name="whattodo" value="Save" /> ';
+      print '<input type="submit" name="whattodo" value="Preview" /> ';
       print '<input type="submit" name="whattodo" value="Cancel" />';
     }
     print '</form>';
@@ -442,12 +520,13 @@ sub SetLock {
     open(LOCK,"<$TempDir/$Page.lock") or push @Messages, "Error opening $Page.lock for read: $!";
     my @lock = <LOCK>;
     close(LOCK);
-    print "<p><span style='color:red'>This file is locked by <strong>$lock[0]</strong> since <strong>" . (FriendlyTime($lock[1]))[$TimeZone] . "</strong>.</span>";
-    print "<br/>Lock should expire by " . (FriendlyTime($lock[1] + $LockExpire))[$TimeZone] . ", and it is now " . (&FriendlyTime)[$TimeZone] . ".</p>";
+    chomp(@lock);
+    print "<p><span style='color:red'>This file is locked by <strong>$lock[0] ($lock[1])</strong> since <strong>" . (FriendlyTime($lock[2]))[$TimeZone] . "</strong>.</span>";
+    print "<br/>Lock should expire by " . (FriendlyTime($lock[2] + $LockExpire))[$TimeZone] . ", and it is now " . (&FriendlyTime)[$TimeZone] . ".</p>";
     return 0;
   } else {
     open(LOCK,">$TempDir/$Page.lock") or push @Messages, "Error opening $Page.lock for write: $!";
-    print LOCK "$UserIP\n$TimeStamp";
+    print LOCK "$UserIP\n$UserName\n$TimeStamp";
     close(LOCK);
     return 1;
   }
@@ -490,6 +569,9 @@ sub DoArchive {
 
 sub WriteFile {
   my ($file, $content, $user) = @_;
+  if(-f "$TempDir/$file.$UserName") {	# Remove preview files
+    unlink "$TempDir/$file.$UserName";
+  }
   &DoArchive($file);
   $content =~ s/\r//g;
   %Filec = ();
@@ -546,53 +628,107 @@ sub AppendFile {
 }
 
 sub AdminForm {
+  my ($u,$p) = &ReadCookie;
   print '<form action="' . $ShortUrl . $ShortScriptName . '" method="post">';
   print '<input type="hidden" name="doing" value="login" />';
-  print 'User: <input type="text" maxlength="30" size="8" name="user" />';
+  print 'User: <input type="text" maxlength="30" size="8" name="user" value="'.
+  $u.'" />';
   print ' Pass: <input type="password" size="12" name="pass" />';
   print '<input type="submit" value="Go" /></form>';
 }
 
-sub DoAdmin {
+sub DoAdminPassword {
   my ($u,$p) = &ReadCookie;
-  if($ShortPage eq 'version') {
-    print '<p>Versions used on this site:</p>';
-    foreach my $c (@Plugins) {
-      print "<p>$c</p>\n";
-    }
-  } elsif($ShortPage eq 'password') {
-    if(!$u) {
-      print "<p>Presently, you do not have a user name set.</p>";
-    } else {
-      print "<p>Your user name is set to '$u'.</p>";
-    }
-    &AdminForm;
-  } elsif($ShortPage eq 'index') {
-    my @indx;
-    open(INDEX,"<$DataDir/pageindex") or push @Messages, "Admin.index: Unable to read from pageindex: $!";
-    @indx = <INDEX>;
-    close(INDEX);
-    @indx = sort(@indx);
-    print "<h3>" . @indx . " pages found.</h3><p>";
-    foreach my $pg (@indx) {
-      print "<a href=\"$ShortUrl$pg\">$pg</a><br/>";
-    }
-    print "</p>";
-  } elsif($ShortPage eq 'reindex') {
-    my @files = (glob("$PageDir/*"));
-    s#^$PageDir/## for @files;
-    @files = sort(@files);
-    open(INDEX,">$DataDir/pageindex") or push @Messages, "Admin.reindex: Unable to write to pageindex: $!";
-    print INDEX join("\n",@files) . "\n";
-    close(INDEX);
-    print "<p>Reindex complete. Check page index.</p>";
+  if(!$u) {
+    print "<p>Presently, you do not have a user name set.</p>";
   } else {
-    print '<p>You may:<ul><li><a href="'.$ShortUrl.'?do=admin;page=password">Authenticate</a></li>';
-    if($p) {
-      print '<li><a href="'.$ShortUrl.'?do=admin;page=version">View version information</a></li>';
-      print '<li><a href="'.$ShortUrl.'?do=admin;page=index">List all pages</a></li>';
-      print '<li><a href="'.$ShortUrl.'?do=admin;page=reindex">Rebuild page index</a></li>';
-      print '<li><a href="'.$ShortUrl.'?do=admin;page=rmlocks">Force delete page locks</a></li>';
+    print "<p>Your user name is set to '$u'.</p>";
+  }
+  &AdminForm;
+}
+
+sub DoAdminVersion {
+  # Display the version information of every plugin listed
+  print '<p>Versions used on this site:</p>';
+  foreach my $c (@Plugins) {
+    print "<p>$c</p>\n";
+  }
+}
+
+sub DoAdminIndex {
+  my @indx;
+  open(INDEX,"<$DataDir/pageindex") or push @Messages, "Admin.index: Unable to read from pageindex: $!";
+  @indx = <INDEX>;
+  close(INDEX);
+  @indx = sort(@indx);
+  print "<h3>" . @indx . " pages found.</h3><p>";
+  foreach my $pg (@indx) {
+    print "<a href=\"$ShortUrl$pg\">$pg</a><br/>";
+  }
+  print "</p>";
+}
+
+sub DoAdminReIndex {
+  # Re-index the site
+  my @files = (glob("$PageDir/*"));
+  s#^$PageDir/## for @files;
+  @files = sort(@files);
+  open(INDEX,">$DataDir/pageindex") or push @Messages, "Admin.reindex: Unable to write to pageindex: $!";
+  print INDEX join("\n",@files) . "\n";
+  close(INDEX);
+  print "<p>Reindex complete. Check page index.</p>";
+}
+
+sub DoAdminRemoveLocks {
+  # Force remove all locks...
+
+}
+
+sub DoAdminListVisitors {
+  # Display the visitors.log file
+  open(LOGFILE,"<$VisitorLog") or push @Messages, "DoAdminListVisitors: Unable to open $VisitorLog: $!";
+  my @lf = <LOGFILE>;
+  close(LOGFILE);
+  @lf = reverse(@lf);	# Most recent entries are on bottom... fix that.
+  chomp(@lf);
+  my $curdate;
+  my @IPs;
+  print "<h2>Visitor log entries (newest to oldest, ".@lf." entries)</h2><p>";
+  foreach my $entry (@lf) {
+    my @e = split(/\t/, $entry);
+    my $date = &YMD($e[1]);
+    my $time = &HMS($e[1]);
+    if($curdate ne $date) { print "</p><h2>$date</h2><p>"; $curdate = $date; }
+    print "$time, user <strong>";
+    print $e[0] . "</strong> (<strong>".$e[3]."</strong>)";
+    #if(@e == 4) { print " (logged in as <strong>".$e[3]."</strong>)"; }
+    my @p = split(/\s+/,$e[2]);
+    print " hit page <strong>".$p[0]."</strong>";
+    if(@p == 2) { print ' and was doing "'.$p[1].'"'; }
+    print "<br/>";
+    if(!grep(/^$e[0]$/,@IPs)) { push @IPs, $e[0]; }
+  }
+  print "</p>";
+  print "<div class=\"toc\"><strong>IPs:</strong><br/>";
+  foreach my $entry (@IPs) {
+    print "$entry<br/>";
+  }
+  print "</div>";
+}
+
+sub DoAdmin {
+  #my ($u,$p) = &ReadCookie;
+  if($ShortPage and $AdminActions{$ShortPage}) {	# Command directive?
+    &{$AdminActions{$ShortPage}};			# Execute it.
+  } else {
+    print '<p>You may:<ul><li><a href="'.$ShortUrl.
+    '?do=admin;page=password">Authenticate</a></li>';
+    #if($p) {
+    if(&IsAdmin) {
+      foreach my $listitem (keys %AdminList) {
+	print '<li><a href="'.$ShortUrl.'?do=admin;page='.$listitem.
+	'">'.$AdminList{$listitem}.'</a></li>';
+      }
     }
     print '</ul></p>';
   }
@@ -700,10 +836,19 @@ sub HM {
   }
 }
 
+sub HMS {
+  my $time = shift;
+  if($TimeZone == 0) {	# GME
+    return strftime "%H:%M:%S UTC", gmtime($time);
+  } else {
+    return strftime "%H:%M:%S %Z", localtime($time);
+  }
+}
+
 sub DoHistory {
   my $shortdir = substr($Page,0,1);   # Get first letter
   $shortdir =~ tr/[a-z]/[A-Z]/;       # Capital
-  if($ArchiveDir and $shortdir and -d "$ArchiveDir/$shortdir") {
+  if($ArchiveDir and $shortdir and -d "$ArchiveDir/$shortdir" and -f "$PageDir/$Page") {
     my @history = (glob("$ArchiveDir/$shortdir/$Page.*"));
     @history = reverse(@history);
     my $currentday;
@@ -711,8 +856,8 @@ sub DoHistory {
     print "<h3>" . &YMD((stat("$PageDir/$Page"))[9]) . " (current)</h3>";
     print "<p>" . &HM((stat("$PageDir/$Page"))[9]) . " ".
     "<a href=\"$ShortUrl$Page\">Revision " . --$revision . "</a>";
-    print " . . . . " . &Trim(`grep -A 1 "author" $PageDir/$Page | tail -n1`);
-    print " &ndash; <strong>" . &Trim(`grep -A 1 "summary" $PageDir/$Page | tail -n1`);
+    print " . . . . " . &Trim(`grep -A 1 "^author" $PageDir/$Page | tail -n1`);
+    print " &ndash; <strong>" . &Trim(`grep -A 1 "^summary" $PageDir/$Page | tail -n1`);
     print "</strong>";
     foreach my $c (@history) {
       my $ts = &Trim(`grep -A 1 "ts" $c | tail -n1`); #(stat($c))[9];
@@ -745,17 +890,33 @@ sub FriendlyTime {
   return ($gmtime, $localtime);
 }
 
+sub Preview {
+  my $file = shift;
+  # First off, we need to save a temp file...
+  my $tempfile = $ShortPage.".".$UserName;
+  # Save contents to temp file
+  open(TEMPFILE, ">$TempDir/$tempfile") or push @Messages, "Preview: Unable to write to temp file: $!";
+  print TEMPFILE $FORM{'text'};
+  close(TEMPFILE);
+}
+
 sub Posting {
   #my $action = $FORM{doing};
   my ($action) = @_ if @_ >= 0;
   #return unless $action;
   $ShortPage = $FORM{'file'};
+  my $redir = 1;
   if($action eq 'login') {
     &SetCookie;
   }
   if(($action eq 'editing') and &CanEdit) {
     if($FORM{'whattodo'} eq "Cancel") {
       &UnLock($FORM{'file'});
+      my @tfiles = (glob("$TempDir/".$FORM{'file'}.".*"));
+      foreach my $file (@tfiles) { unlink $file; }
+    } elsif($FORM{'whattodo'} eq "Preview") {
+      &Preview($FORM{'file'});
+      $redir = 0;
     } else {
       &WriteFile($FORM{'file'}, $FORM{'text'}, $FORM{'uname'});
     }
@@ -763,29 +924,48 @@ sub Posting {
   if(($action eq 'discuss') and &CanDiscuss) {
     &AppendFile($FORM{'file'}, $FORM{'text'}, $FORM{'uname'}, $FORM{'url'});
   }
-  print "Location: ".$Url.$FORM{'file'}."\n\n";
+  if($redir) {
+    print "Location: ".$Url.$FORM{'file'}."\n\n";
+  } else {
+    print "Location: ".$Url."?do=edit;page=".$FORM{'file'}."\n\n";
+  }
 }
 
 sub DoVisit {
-  my $logentry = "$UserIP $TimeStamp $ShortPage ";
-  if($command) { $logentry .= "($command) "; }
-  $logentry .= "$UserName";
-  #my @rc;
-  #open(LOGFILE,"<$VisitorLog");
-  #@rc = <LOGFILE>;
-  #close(LOGFILE);
-  #push @rc, "$logentry\n";
+  my $logentry = "$UserIP\t$TimeStamp\t$ShortPage";
+  if($PageRevision) { $logentry .= ".$PageRevision"; }
+  if($command) { $logentry .= " ($command)"; }
+  $logentry .= "\t$UserName";
+  my @rc;
+  open(LOGFILE,"<$VisitorLog");
+  @rc = <LOGFILE>;
+  close(LOGFILE);
+  push @rc, "$logentry\n";
   #if($#rc + 1 >= $MaxVisitorLog) {
   #until $#rc <= ($MaxVisitorLog - 1) shift @rc;
+  while(@rc > $MaxVisitorLog) {
+    shift @rc;
+  }
+  #open(LOGFILE,">>$VisitorLog");
   open(LOGFILE,">$VisitorLog");
-  print LOGFILE "$logentry\n";
-  #print LOGFILE join("",@rc);
+  #print LOGFILE "$logentry\n";
+  print LOGFILE join("",@rc);
   close(LOGFILE);
-  system("tail -n $MaxVisitorLog > $VisitorLog");
+  #system("tail -n $MaxVisitorLog $VisitorLog > $VisitorLog");
 }
 
 sub DoMaint {
-
+  # Remove files from temp older than $RemoveOldTemp
+  # First, get all files
+  my @filelist = (glob("$TempDir/*"));
+  # Next, find out when the cutoff is
+  my $cutoff = $TimeStamp - $RemoveOldTemp;
+  # Finally, walk though the file list and remove
+  foreach my $file (@filelist) {
+    if((stat($file))[9] <= $cutoff) {
+      unlink $file;
+    }
+  }
 }
 
 sub DoRequest {
@@ -804,7 +984,7 @@ sub DoRequest {
   if($command and $Commands{$command}) {	# Command directive?
     &{$Commands{$command}};			# Execute it.
   } else {
-    if(! -f "$PageDir/$Page") {
+    if(! -f "$PageDir/$Page") {		# Doesn't exist!
       print $NewPage;
     } else {
       if($PageRevision) {	# We're doing a previous page...
@@ -851,10 +1031,12 @@ sub DoRequest {
 &DoRequest;	# Handle the request
 &DoVisit;	# Log visitor
 &DoMaint;	# Run maintenance commands
-1;	# In case we're being called elsewhere
+1;		# In case we're being called elsewhere
+
+# Everything below the DATA line is the default "theme"
 
 __DATA__
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml"><head>
 <title>$SiteName: $PageName</title>
 <link rel="alternate" type="application/wiki" title="Edit this page" href="$Url?do=edit;page=$ShortPage" />
@@ -942,6 +1124,30 @@ div.wrapper img {
 
 h1.hr, h2.hr, h3.hr, h4.hr, h5.hr {
   border-bottom: 2px solid rgb(0,0,0);
+}
+
+.toc {
+  /*float:right;*/
+  background-color: rgb(243,243,243);
+  padding:5px;
+  margin:10px;
+  border: 1px solid rgb(221,221,221);
+  border-radius: 3px 3px 3px 3px;
+  /*font-size:0.9em;*/
+  position:absolute;
+  top:0;
+  right:0;
+}
+
+.wrapper {
+  position: relative;
+}
+
+.preview {
+  margin: 10px;
+  padding: 5px;
+  border: 1px solid rgb(221,221,221);
+  background-color: lightyellow;
 }
 
 @media print {
