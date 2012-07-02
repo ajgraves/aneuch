@@ -88,6 +88,8 @@ sub InitVars {
   # Get page name that is being requested
   $Page = $ENV{'QUERY_STRING'};	# Should be the page
   $Page =~ s/%([a-fA-F0-9][a-fA-F0-9])/pack("C", hex($1))/eg;	# Get "plain"
+  $Page =~ s/&/;/g;		# Replace ampersand with semicolon
+  $Page =~ s/\+/ /g;		# Replace + with space...
   $Page =~ s!^/!!;		# Remove leading slash, if it exists
   $Page =~ s/ /_/g;		# Convert spaces to underscore
   $Page =~ s!\.{2,}!!g;		# Remove every instance of double period
@@ -123,7 +125,7 @@ sub InitVars {
   }
 
   # Discuss links
-  if(!$command or $command ne 'admin') {
+  if(!$command) { #or $command ne 'admin') {
     if($ShortPage !~ m/^$DiscussPrefix/) {
       $DiscussLink = $ShortUrl . $DiscussPrefix . $ShortPage;
       $DiscussText = $DiscussPrefix;
@@ -152,9 +154,13 @@ sub InitVars {
   }
 
   # If we're a command, change the page title
-  #if($command) {
+  if($command) {
   #  $PageName = $commandtitle{$command};
-  #}
+    if($command eq 'search') { 
+      $ArgList = $PageName;
+      $PageName = "Search for: $PageName";
+     }
+  }
 
   # Set the TimeStamp
   $TimeStamp = time;
@@ -360,6 +366,7 @@ sub GetFile {
     open(FH,"$file") or push @Messages, $!; # Push error
     chomp(@return = <FH>);	# Remove \n
     close(FH);
+    s/\r//g for @return;
     foreach (@return) {
       if(/^\t/) {
 	$F{$currentkey} .= "\n$_";
@@ -371,8 +378,8 @@ sub GetFile {
     }
     #$MTime = $F{ts};
     #$MTime = (&FriendlyTime($MTime))[$TimeZone];
-    $F{text} =~ s/\r//g;
-    $F{text} =~ s/\n\t/\n/g;
+    #$F{text} =~ s/\r//g;
+    s/\n\t/\n/g for ($F{text}, $F{diff});
     #return @{$Filec{text}}; #@return;
     #return split("\n", $F{text});
     return %F;
@@ -485,7 +492,7 @@ sub LogRecent {
   # Remove any old entry...
   @rc = grep(!/^$day(\d{6})\t$file/,@rc);
   # Now update...
-  push @rc, "$day$time\t$file\t$un\t$mess\n";
+  push @rc, "$day$time\t$file\t$un\t$mess\t$TimeStamp\n";
   # Now write it back out...
   open(RCL,">$RecentChangesLog") or push @Messages, "LogRecent: Unable to write to $RecentChangesLog: $!";
   print RCL @rc;
@@ -519,6 +526,7 @@ sub DoEdit {
     @preview = <PREVIEW>;
     close(PREVIEW);
     s/\r//g for @preview;
+    chomp($revision = $preview[0]); shift @preview;
     $contents = join("", @preview);
     RefreshLock();
   } else {
@@ -539,7 +547,8 @@ sub DoEdit {
     }
   }
   if(@preview) {
-    print "<div class=\"preview\">" . join("\n",Markup(@preview)) . "</div>";
+    #print "<div class=\"preview\">" . join("\n",Markup(@preview)) . "</div>";
+    print "<div class=\"preview\">" . Markup($contents) . "</div>";
   }
   print '<textarea name="text" cols="100" rows="25">' . $contents . '</textarea>';
   if($canedit) {
@@ -688,7 +697,12 @@ sub AppendFile {
   #push @{$F{text}}, ($sig, "____\n");
   $F{text} .= "$sig\n____\n";
   $F{text} =~ s/\r//g;
-  $F{text} =~ s/\n/\n\t/g;
+  StringToFile($T{text}, "$TempDir/old");
+  StringToFile($F{text}, "$TempDir/new");
+  my $diff = `diff $TempDir/old $TempDir/new`;
+  $diff =~ s/\\ No newline.*\n//g;
+  $F{diff} = $diff;
+  s/\n/\n\t/g for ($F{text}, $F{diff});
   open(FILE, ">$PageDir/$file") or push @Messages, "AppendFile: Unable to append to $file: $!";
   foreach my $key (sort keys %F) {
     print FILE "$key: " . $F{$key} . "\n";
@@ -782,10 +796,10 @@ sub DoAdminListVisitors {
     my $time = HMS($e[1]);
     if($curdate ne $date) { print "</p><h2>$date</h2><p>"; $curdate = $date; }
     print "$time, user <strong>";
-    print $e[0] . "</strong> (<strong>".$e[3]."</strong>)";
+    print $e[0] . "</strong> (<strong>".QuoteHTML($e[3])."</strong>)";
     #if(@e == 4) { print " (logged in as <strong>".$e[3]."</strong>)"; }
     my @p = split(/\s+/,$e[2]);
-    print " hit page <strong>".$p[0]."</strong>";
+    print " hit page <strong>".QuoteHTML($p[0])."</strong>";
     if(@p == 2) { print ' and was doing "'.$p[1].'"'; }
     print "<br/>";
     if(!grep(/^$e[0]$/,@IPs)) { push @IPs, $e[0]; }
@@ -912,7 +926,9 @@ sub DoRecentChanges {
       print "<h3>$day</h3><ul>";
       $openul = 1;
     }
-    print "<li>$tme $tz (<a href='$ShortUrl?do=history;page=$ent[1]".
+    print "<li>$tme $tz (<a href='$ShortUrl?do=diff;page=$ent[1]".
+      "'>diff</a>, ".
+      "<a href='$ShortUrl?do=history;page=$ent[1]".
       "'>history</a>) ";
     print "<a href='$ShortUrl$ent[1]'>$ent[1]</a> . . . . $ent[2]<br/>".
     QuoteHTML($ent[3])."</li>";
@@ -920,7 +936,57 @@ sub DoRecentChanges {
 }
 
 sub DoSearch {
+  # First, get a list of all files...
+  my @files = (glob("$PageDir/*"));
+  # Sort by modification time, newest first
+  @files = sort {(stat($b))[9] <=> (stat($a))[9]} @files;
+  my $search = $ArgList; #$ShortPage;
+  #my $result;
+  my %result;
+  print "<p>Search results for &quot;$ArgList&quot;</p>";
+  foreach my $file (@files) {
+    my $fn = $file;
+    my $linkedtopage;
+    my $matchcount;
+    $fn =~ s#^$PageDir/##;
+    my %F = GetFile($file);
+    if($fn =~ m/$search/i) {
+      $linkedtopage = 1;
+      $result{$fn} = '<small>Last modified '.
+	(FriendlyTime($F{ts}))[$TimeZone]."</small><br/>";
+    }
+    while($F{text} =~ m/(.{0,25}$search.{0,25})/gsix) {
+      if(!$linkedtopage) {
+	#$result.="<br/><br/><a href='$ShortUrl$fn'>$fn</a> <small>last updated";
+	#$result.=" ".(FriendlyTime($F{ts}))[$TimeZone]."</small><br/> . . . ";
+	$linkedtopage = 1;
+	$result{$fn} = '<small>Last modified '.
+	  (FriendlyTime($F{ts}))[$TimeZone]."</small><br/>";
+      }
+      if($matchcount == 0) { $result{$fn} .= " . . . "; }
+      my $res = QuoteHTML($1); 
+      $res =~ s#(.*?)($search)(.*?)#$1<strong>$2</strong>$3#gsix;
+      #$result .= "$res . . . ";
+      $result{$fn} .= "$res . . . ";
+      $matchcount++;
+    }
+  }
+  # Now sort them by value...
+  my @keys = sort {length $result{$b} <=> length $result{$a}} keys %result;
+  foreach my $key (@keys) {
+    print "<a href='$ShortUrl$key'>$key</a><br/>".
+      $result{$key}."<br/><br/>";
+  }
+  #print $result . "<br/><br/><br/>";
+}
 
+sub SearchForm {
+  my $ret;
+  $ret = "<form action='$ScriptName' method='get'>";
+  $ret .= "<input type='hidden' name='do' value='search' />";
+  $ret .= "<input type='text' name='page' size='40' />";
+  $ret .= " <input type='submit' value='Search' /></form>";
+  return $ret;
 }
 
 sub YMD {
@@ -972,7 +1038,10 @@ sub DoHistory {
     print "<h3>$currentday</h3>";
     print "<p>" . HM($f{ts}) . " ".
     "<a href=\"$ShortUrl$Page\">Revision " . $f{revision} . " (current)</a>";
-    print " . . . . " . $f{author};
+    if($f{revision} > 1) {
+      print " (<a href='$ShortUrl?do=diff;page=$Page'>diff</a>)";
+    }
+    print " . . . . " . QuoteHTML($f{author});
     print " &ndash; <strong>" . QuoteHTML($f{summary});
     print "</strong><br/>";
 
@@ -984,13 +1053,23 @@ sub DoHistory {
         #$c =~ s|^$ArchiveDir/$ShortDir/||;
         #%f = GetFile("$ArchiveDir/$ShortDir/$c");
 	%f = GetFile($c);
+	my $nextrev;
         my $day = YMD($f{ts});
         if($day ne $currentday) {
 	  $currentday = $day;
 	  print "</p><h3>$day</h3><p>";
 	}
+	if($f{revision} == 1) {
+	  $nextrev = '';
+	} else {
+	  $nextrev = ''.($f{revision} - 1).'.'.$f{revision};
+	}
 	print HM($f{ts})." <a href=\"$ShortUrl$Page.$f{revision}\"> Revision ".
-        $f{revision}."</a>";
+          $f{revision}."</a>";
+	if($nextrev) {
+ 	  print " (<a href='$ShortUrl?do=diff;page=$Page;rev=$nextrev'>".
+	    "diff</a>)";
+	}
         print " . . . . $f{author}";
         print " &ndash; <strong>" . QuoteHTML($f{summary});
         print "</strong><br/>";
@@ -1021,7 +1100,7 @@ sub Preview {
   my $tempfile = $ShortPage.".".$UserName;
   # Save contents to temp file
   open(TEMPFILE, ">$TempDir/$tempfile") or push @Messages, "Preview: Unable to write to temp file: $!";
-  print TEMPFILE $FORM{'text'};
+  print TEMPFILE $FORM{'revision'}."\n".$FORM{'text'};
   close(TEMPFILE);
 }
 
@@ -1122,7 +1201,7 @@ sub GetDiff {
 sub HTMLDiff {
   my $diff = shift;
   my @blocks = split(/^(\d+,?\d*[dca]\d+,?\d*\n)/m, $diff);
-  my $return;
+  my $return = "<div class='diff'>";
   shift @blocks;
   while($#blocks > 0) {
     my $h = shift @blocks;
@@ -1131,13 +1210,22 @@ sub HTMLDiff {
 	or $h =~ s#^(\d+.*a.*)#<p><strong>Added:</strong></p>#;
     $return .= $h;
     my $next = shift @blocks;
+    $next = QuoteHTML($next);
     my ($o, $n) = split(/\n---\n/,$next,2);
-    QuoteHTML($o); QuoteHTML($n);
     s#\n#<br/>#g for ($o,$n);
     if($o and $n) {
-      $return .= "$o<p><strong>to</strong></p>\n$n";
+      $return .= "<div class='old'>$o</div><p><strong>to</strong></p>\n".
+	"<div class='new'>$n</div><hr/>";
+    } else {
+      if($h =~ m/Added:/) {
+	$return .= "<div class='new'>";
+      } else {
+	$return .= "<div class='old'>";
+      }
+      $return .= "$o</div><hr/>";
     }
   }
+  $return .= "</div>";
   return $return;
 }
 
@@ -1148,13 +1236,30 @@ sub DoDiff {
     my %F = GetFile("$PageDir/$ShortPage");
     #return $F{diff};
     print HTMLDiff($F{diff});
+    print "<hr/>";
+    if(defined &Markup) {
+      print Markup($F{text});
+    } else {
+      print $F{text};
+    }
   } else {
     if($ArgList =~ m/^rev=(\d+)($|\.?(\d+))/) {
+      my %F;
       my $oldrev = "$ShortPage.$1"; #"$ArchiveDir/$shortdir/$ShortPage.$1";
       my $newrev = $3 ? "$ShortPage.$3" : "$ShortPage";
       print "<p>Comparing revision $1 to " . ($3 ? $3 : "current") . "</p>";
       print HTMLDiff(GetDiff($oldrev, $newrev));
       print "<hr/>";
+      if($newrev =~ m/\.\d+$/) {
+	%F = GetFile("$ArchiveDir/$ShortDir/$newrev");
+      } else {
+	%F = GetFile("$PageDir/$newrev");
+      }
+      if(defined &Markup) {
+	print Markup($F{text});
+      } else {
+	print $F{text};
+      }
     }
   }
 }
@@ -1212,7 +1317,7 @@ sub DoRequest {
     #if($MTime) {
     if($Filec{ts}) {
       $MTime = "Last modified: ".(FriendlyTime($Filec{ts}))[$TimeZone]." by ".
-	$Filec{author};
+	$Filec{author} . "<br/>";
     }
     if($ShortPage eq 'RecentChanges') {
       DoRecentChanges();
@@ -1221,6 +1326,7 @@ sub DoRequest {
       print DoDiscuss();
     }
   }
+  $MTime .= SearchForm();
   if($Debug) {
     $DebugMessages = join("<br/>", @Messages);
   }
@@ -1316,6 +1422,10 @@ textarea {
   color:gray;
 }
 
+.mtime form {
+  padding-top: 10px;
+}
+
 div.wrapper img {
   padding:5px;
   margin:10px;
@@ -1350,6 +1460,19 @@ h1.hr, h2.hr, h3.hr, h4.hr, h5.hr {
   padding: 5px;
   border: 1px solid rgb(221,221,221);
   background-color: lightyellow;
+}
+
+.diff {
+  padding-left: 5%;
+  padding-right: 5%;
+}
+
+.old {
+  background-color: lightpink;
+}
+
+.new {
+  background-color: lightgreen;
 }
 
 @media print {
