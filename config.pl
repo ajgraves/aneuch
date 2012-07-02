@@ -105,6 +105,12 @@ $NavBar = '';
 #  default is 0, which will not show errors. Set to 1 to see errors.
 $Debug = 0;
 
+# $RemoveOldTemp - This variable controls how long temp files are allowed
+#  to hang out in the temp folder. It contains a number of seconds. The default
+#  value is 7 days, or 60*60*24*7 (604,800) seconds, and is considered a sane
+#  default.
+$RemoveOldTemp = 60*60*24*7;
+
 # $Header and $Footer - These variables are used in "theming" your site. If
 #  either one is blank, the default theme will be used. You can either fill
 #  the variables with content, or import the contents of a file into each.
