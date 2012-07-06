@@ -98,7 +98,18 @@ $NewComment = 'Add your comment here.';
 #    $NavBar = '<a href="' . $ShortUrl . 'About>About</a>';
 #  to link to an 'About' page. I don't think you'll break anything, so play
 #  around a bit. The default is blank.
+#  NOTE: This is essentially replaced by @NavBarPages
 $NavBar = '';
+
+# @NavBarPages - This array holds a list of pages that you want to appear
+#  in the nav bar, and is a replacement for the $NavBar variable above. It 
+#  significantly simplifies the way the navbar is built. The default value is
+#  empty. If you want to include an "About" and a "Contact" page to your navbar,
+#  use this as an example:
+#	@NavBarPages = qw(About Contact);
+#   -or-
+#	@NavBarPages = ('About', 'Contact');
+@NavBarPages = qw();
 
 # $Debug - This variable controls whether or not error messages should be shown
 #  at the bottom of the page, and is really only useful to developers. The
