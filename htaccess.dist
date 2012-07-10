@@ -4,5 +4,9 @@ RewriteEngine on
 RewriteBase /
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
+# If using a wrapper, use this (change index.cgi to match the name of your
+#  wrapper.
 RewriteRule (.*) index.cgi?$1 [nc]
+# If using the script name itself, use this:
+#RewriteRule (.*) aneuch.pl?$1 [nc]
 </IfModule>
