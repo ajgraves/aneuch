@@ -39,10 +39,10 @@ $PageName %FORM $TempDir @Messages $command $contents @Plugins $TimeStamp
 $PostFooter $TimeZone $VERSION $EditText $RevisionsText $NewPage $NewComment
 $NavBar $ConfFile $UserIP $UserName $VisitorLog $LockExpire %Filec $MTime
 $RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog
-%Commands %AdminActions %AdminList $RemoveOldTemp $ArgList $ShortDir);
+%Commands %AdminActions %AdminList $RemoveOldTemp $ArgList $ShortDir
+@NavBarPages);
 my %srvr = (
-  80 => 'http://',
-  443 => 'https://',
+  80 => 'http://',	443 => 'https://',
 );
 
 $VERSION = '0.10 (alpha)';	# Set version number
@@ -93,9 +93,9 @@ sub InitVars {
   $Page =~ s!^/!!;		# Remove leading slash, if it exists
   $Page =~ s/ /_/g;		# Convert spaces to underscore
   $Page =~ s!\.{2,}!!g;		# Remove every instance of double period
-  if($Page =~ m/^?do=(.*);page=(.*?)$/) { # We're getting a command directive
+  if($Page =~ m/^?do=(.*?)(;page=(.*)|)$/) { # We're getting a command directive
     $command = $1;		# Set the command
-    $Page = $2;			# Set the page
+    $Page = $3; #if $2;		# Set the page
     if($Page =~ m/^.*?;(.*)$/) { # If there are still arguments...
       $ArgList = (split(/;/,$Page))[1]; # Get them
       $Page = (split(/;/,$Page))[0]; # Set page properly
@@ -175,27 +175,24 @@ sub InitVars {
   if(!$UserName) { $UserName = $UserIP; }
 
   # Navbar
-  $NavBar = "<a href='$Url$DefaultPage'>$DefaultPage</a> <a href='".$ShortUrl.
-    "RecentChanges'>RecentChanges</a> ".$NavBar;
+  $NavBar = "<a href='$Url$DefaultPage' title='$DefaultPage'>$DefaultPage</a> ".
+    "<a href='".$ShortUrl."RecentChanges' title='RecentChanges'>".
+    "RecentChanges</a> ".$NavBar;
+  foreach (@NavBarPages) {
+    $NavBar .= '<a href="'.$ShortUrl.$_.'" title="'.$_.'">'.$_.'</a> ';
+  }
 
   # For the Admin stuff
   %Commands = (			# This is the list of commands, and their subs
-    admin => \&DoAdmin,
-    edit => \&DoEdit,
-    search => \&DoSearch,
-    history => \&DoHistory,
-    random => \&DoRandom,
-    diff => \&DoDiff,
+    admin => \&DoAdmin,		edit => \&DoEdit,
+    search => \&DoSearch,	history => \&DoHistory,
+    random => \&DoRandom,	diff => \&DoDiff,
   );
   %AdminActions = (		# List of admin actions, and their subs
-    password => \&DoAdminPassword,
-    version => \&DoAdminVersion,
-    index => \&DoAdminIndex,
-    reindex => \&DoAdminReIndex,
-    rmlocks => \&DoAdminRemoveLocks,
-    visitors => \&DoAdminListVisitors,
-    lock => \&DoAdminLock,
-    unlock => \&DoAdminUnlock,
+    password => \&DoAdminPassword,	version => \&DoAdminVersion,
+    index => \&DoAdminIndex,		reindex => \&DoAdminReIndex,
+    rmlocks => \&DoAdminRemoveLocks,	visitors => \&DoAdminListVisitors,
+    lock => \&DoAdminLock,		unlock => \&DoAdminUnlock,
   );
   %AdminList = (		# For the Admin menu
     version => 'View version information',
@@ -220,6 +217,7 @@ sub Markup {
   # Markup is a cluster. It's so ugly and nasty, but it works. In the future,
   #  this thing will be re-written to be much cleaner.
   my $cont = shift;
+  $cont = QuoteHTML($cont);
   my @contents = split("\n", $cont);
   #chomp(my @contents = @_);	# Receive data
   # If nomarkup is requested
@@ -266,7 +264,7 @@ sub Markup {
     $line =~ s#\[{2}(.*?)\]{2}#<a href="$1" title="$1">$1</a>#g;
 
     # HR
-    $line =~ s#^_{4,}$#<hr/>#;
+    $line =~ s#^-{4,}$#<hr/>#;
 
     # <tt>
     $line =~ s#\`{1}(.*?)\`{1}#<tt>$1</tt>#g;
@@ -536,7 +534,7 @@ sub DoEdit {
     $revision = $f{revision} if defined $f{revision};
     $revision = 0 unless $revision;
   }
-  $contents = QuoteHTML($contents);
+  #$contents = QuoteHTML($contents);
   if($canedit) {
     print '<form action="' . $ShortUrl . $ShortScriptName . '" method="post">';
     print '<input type="hidden" name="doing" value="editing">';
@@ -550,7 +548,7 @@ sub DoEdit {
     #print "<div class=\"preview\">" . join("\n",Markup(@preview)) . "</div>";
     print "<div class=\"preview\">" . Markup($contents) . "</div>";
   }
-  print '<textarea name="text" cols="100" rows="25">' . $contents . '</textarea>';
+  print '<textarea name="text" cols="100" rows="25">' . QuoteHTML($contents) . '</textarea>';
   if($canedit) {
     # Set a lock
     if(@preview or &SetLock) {
@@ -689,13 +687,13 @@ sub AppendFile {
   if(!$url) {
     $url = $user;
   }
-  $sig = '&mdash; [['.$url.'|'.$user.']] //'.
+  $sig = '- [['.$url.'|'.$user.']] //'.
   (&FriendlyTime($TimeStamp))[$TimeZone] . "// ($UserIP)";
   #} else {
   #  $sig = $user.' //' . (&FriendlyTime($TimeStamp))[$TimeZone] . "//";
   #}
   #push @{$F{text}}, ($sig, "____\n");
-  $F{text} .= "$sig\n____\n";
+  $F{text} .= "$sig\n----\n";
   $F{text} =~ s/\r//g;
   StringToFile($T{text}, "$TempDir/old");
   StringToFile($F{text}, "$TempDir/new");
@@ -723,7 +721,7 @@ sub ListAllPages {
 }
 
 sub AdminForm {
-  my ($u,$p) = &ReadCookie;
+  my ($u,$p) = ReadCookie();
   print '<form action="' . $ShortUrl . $ShortScriptName . '" method="post">';
   print '<input type="hidden" name="doing" value="login" />';
   print 'User: <input type="text" maxlength="30" size="8" name="user" value="'.
@@ -733,7 +731,7 @@ sub AdminForm {
 }
 
 sub DoAdminPassword {
-  my ($u,$p) = &ReadCookie;
+  my ($u,$p) = ReadCookie();
   if(!$u) {
     print "<p>Presently, you do not have a user name set.</p>";
   } else {
@@ -796,11 +794,30 @@ sub DoAdminListVisitors {
     my $time = HMS($e[1]);
     if($curdate ne $date) { print "</p><h2>$date</h2><p>"; $curdate = $date; }
     print "$time, user <strong>";
-    print $e[0] . "</strong> (<strong>".QuoteHTML($e[3])."</strong>)";
+    print QuoteHTML($e[0])."</strong> (<strong>".QuoteHTML($e[3])."</strong>)";
     #if(@e == 4) { print " (logged in as <strong>".$e[3]."</strong>)"; }
     my @p = split(/\s+/,$e[2]);
-    print " hit page <strong>".QuoteHTML($p[0])."</strong>";
-    if(@p == 2) { print ' and was doing "'.$p[1].'"'; }
+    if(@p == 2) {
+      if($p[1] eq "(edit)") {
+	print " was editing <strong>".QuoteHTML($p[0])."</strong>";
+      } elsif($p[1] eq "(history)") {
+	print " was viewing the history of <strong>".QuoteHTML($p[0]).
+	  "</strong>";
+      } elsif($p[1] eq "(search)") {
+	print " was searching for <strong>&quot;".QuoteHTML($p[0]).
+	  "&quot;</strong>";
+      } elsif($p[1] eq "(diff)") {
+	print " was viewing differences on <strong>".QuoteHTML($p[0]).
+	  "</strong>";
+      } elsif($p[1] eq "(admin)") {
+	print " was in Administrative mode, doing <strong>".QuoteHTML($p[0]).
+	  "</strong>";
+      } elsif($p[1] eq "(random)") {
+	print " was redirected to a random page from <strong>".QuoteHTML($p[0]).
+	  "</strong>";
+      }
+    } else { print " hit page <strong>".QuoteHTML($p[0])."</strong>"; }
+    #if(@p == 2) { print ' and was doing "'.$p[1].'"'; }
     print "<br/>";
     if(!grep(/^$e[0]$/,@IPs)) { push @IPs, $e[0]; }
   }
@@ -835,8 +852,10 @@ sub DoAdminUnlock {
 sub DoAdmin {
   #my ($u,$p) = &ReadCookie;
   # Command? And can we run it?
-  if($ShortPage and $AdminActions{$ShortPage} and IsAdmin()) {
-    &{$AdminActions{$ShortPage}};			# Execute it.
+  if($ShortPage and $AdminActions{$ShortPage}) {
+    if($ShortPage eq 'password' or IsAdmin()) {
+      &{$AdminActions{$ShortPage}};			# Execute it.
+    }
   } else {
     print '<p>You may:<ul><li><a href="'.$ShortUrl.
     '?do=admin;page=password">Authenticate</a></li>';
@@ -950,7 +969,7 @@ sub DoSearch {
     my $matchcount;
     $fn =~ s#^$PageDir/##;
     my %F = GetFile($file);
-    if($fn =~ m/$search/i) {
+    if($fn =~ m/.*?$search.*?/i) {
       $linkedtopage = 1;
       $result{$fn} = '<small>Last modified '.
 	(FriendlyTime($F{ts}))[$TimeZone]."</small><br/>";
@@ -1050,8 +1069,6 @@ sub DoHistory {
       @history = reverse(@history);
       #my $revision = @history + 1;
       foreach my $c (@history) {
-        #$c =~ s|^$ArchiveDir/$ShortDir/||;
-        #%f = GetFile("$ArchiveDir/$ShortDir/$c");
 	%f = GetFile($c);
 	my $nextrev;
         my $day = YMD($f{ts});
@@ -1264,6 +1281,14 @@ sub DoDiff {
   }
 }
 
+sub DoRandom {
+  my @files = ListAllPages();
+  my $count = @files;
+  my $randompage = int(rand($count));
+  print '<script language="javascript" type="text/javascript">'.
+    'window.location.href="'.$files[$randompage].'"; </script>';
+}
+
 sub DoRequest {
   # Are we receiving something?
   if(ReadIn()) {
@@ -1354,7 +1379,7 @@ __DATA__
 <style type="text/css">
 body {
     background:#fff;
-    padding:2% 3%;
+    padding:1% 3%;
     margin:0;
     font-family: "Bookman Old Style", "Times New Roman", serif;
     font-size: 12pt;
@@ -1500,7 +1525,8 @@ pre { border:0; font-size:10pt; }
 <span class="navbar">$DiscussText
 $EditText
 $RevisionsText
-<a title="Administration options" rel="nofollow" href="$ShortUrl?do=admin;page=admin">Admin</a></span><span style="float:right;"><strong>$SiteName</strong>
+<a title="Administration options" rel="nofollow" href="$ShortUrl?do=admin;page=admin">Admin</a>
+<a title="Random page" rel="nofollow" href="$ShortUrl?do=random;page=$ShortPage">Random Page</a></span><span style="float:right;"><strong>$SiteName</strong>
 is powered by <em>Aneuch</em>.</span><br/>
 <span class="mtime">$MTime</span><br/>
 $PostFooter
