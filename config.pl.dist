@@ -125,7 +125,7 @@ $RemoveOldTemp = 60*60*24*7;
 # $Header and $Footer - These variables are used in "theming" your site. If
 #  either one is blank, the default theme will be used. You can either fill
 #  the variables with content, or import the contents of a file into each.
-#  I leave that as an excercise for the reader. Caution: There be dragons ahead!
+#  I leave that as an exercise for the reader. Caution: There be dragons ahead!
 # $Header = '';
 # $Footer = '';
 
