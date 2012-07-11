@@ -520,12 +520,18 @@ sub DoEdit {
   my ($contents, $revision);
   my @preview;
   if(-f "$TempDir/$Page.$UserName") {
-    open(PREVIEW,"<$TempDir/$Page.$UserName") or push @Messages, "DoEdit: Unable to read from preview file $Page.$UserName: $!";
-    @preview = <PREVIEW>;
-    close(PREVIEW);
+    #open(PREVIEW,"<$TempDir/$Page.$UserName") or push @Messages, "DoEdit: Unable to read from preview file $Page.$UserName: $!";
+    #@preview = <PREVIEW>;
+    #close(PREVIEW);
+    #s/\r//g for @preview;
+    #chomp($revision = $preview[0]); shift @preview;
+    #$contents = join("", @preview);
+    #$contents = FileToString("$TempDir/$Page.$UserName");
+    #$contents =~ s/\r//g;
+    @preview = FileToArray("$TempDir/$Page.$UserName");
     s/\r//g for @preview;
-    chomp($revision = $preview[0]); shift @preview;
-    $contents = join("", @preview);
+    $revision = $preview[0]; shift @preview;
+    $contents = join("\n", @preview);
     RefreshLock();
   } else {
     #$contents = join("", &GetFile($PageDir, $Page));
@@ -551,7 +557,7 @@ sub DoEdit {
   print '<textarea name="text" cols="100" rows="25">' . QuoteHTML($contents) . '</textarea>';
   if($canedit) {
     # Set a lock
-    if(@preview or &SetLock) {
+    if(@preview or SetLock()) {
       print 'Summary: <input type="text" name="summary" size="60" />';
       print ' User name: <input type="text" name="uname" size="12" value="'.$UserName.'" /> ';
       print '<input type="submit" name="whattodo" value="Save" /> ';
@@ -565,7 +571,7 @@ sub DoEdit {
 
 sub SetLock {
   if(-f "$TempDir/$Page.lock" and ((stat("$TempDir/$Page.lock"))[9] <= ($TimeStamp - $LockExpire))) {
-    &UnLock;
+    UnLock();
   }
   # Set a lock on $Page
   if(-f "$TempDir/$Page.lock") {
@@ -574,7 +580,7 @@ sub SetLock {
     close(LOCK);
     chomp(@lock);
     print "<p><span style='color:red'>This file is locked by <strong>$lock[0] ($lock[1])</strong> since <strong>" . (FriendlyTime($lock[2]))[$TimeZone] . "</strong>.</span>";
-    print "<br/>Lock should expire by " . (FriendlyTime($lock[2] + $LockExpire))[$TimeZone] . ", and it is now " . (&FriendlyTime)[$TimeZone] . ".</p>";
+    print "<br/>Lock should expire by " . (FriendlyTime($lock[2] + $LockExpire))[$TimeZone] . ", and it is now " . (FriendlyTime())[$TimeZone] . ".</p>";
     return 0;
   } else {
     open(LOCK,">$TempDir/$Page.lock") or push @Messages, "Error opening $Page.lock for write: $!";
@@ -688,7 +694,7 @@ sub AppendFile {
     $url = $user;
   }
   $sig = '- [['.$url.'|'.$user.']] //'.
-  (&FriendlyTime($TimeStamp))[$TimeZone] . "// ($UserIP)";
+  (FriendlyTime($TimeStamp))[$TimeZone] . "// ($UserIP)";
   #} else {
   #  $sig = $user.' //' . (&FriendlyTime($TimeStamp))[$TimeZone] . "//";
   #}
@@ -775,7 +781,12 @@ sub DoAdminReIndex {
 
 sub DoAdminRemoveLocks {
   # Force remove all locks...
-
+  my @files = glob("$TempDir/*.lock");
+  foreach (@files) {
+    unlink $_;
+  }
+  s!^$TempDir/!! for @files;
+  print "Removed the following locks:<br/>".join("<br/>",@files);
 }
 
 sub DoAdminListVisitors {
@@ -1116,9 +1127,10 @@ sub Preview {
   # First off, we need to save a temp file...
   my $tempfile = $ShortPage.".".$UserName;
   # Save contents to temp file
-  open(TEMPFILE, ">$TempDir/$tempfile") or push @Messages, "Preview: Unable to write to temp file: $!";
-  print TEMPFILE $FORM{'revision'}."\n".$FORM{'text'};
-  close(TEMPFILE);
+  #open(TEMPFILE, ">$TempDir/$tempfile") or push @Messages, "Preview: Unable to write to temp file: $!";
+  #print TEMPFILE $FORM{'revision'}."\n".$FORM{'text'};
+  #close(TEMPFILE);
+  StringToFile($FORM{'revision'}."\n".$FORM{'text'}, "$TempDir/$tempfile");
 }
 
 sub Posting {
@@ -1195,6 +1207,24 @@ sub StringToFile {
   open(FILE,">$file") or push @Messages, "StringToFile: Can't write to $file: $!";
   print FILE $string;
   close(FILE);
+}
+
+sub FileToString {
+  my $file = shift;
+  my @return;
+  open(FILE,"<$file") or push @Messages, "FileToString: Can't read from $file: $!";
+  @return = <FILE>;
+  close(FILE);
+  return join("",@return);
+}
+
+sub FileToArray {
+  my $file = shift;
+  my @return;
+  open(FILE,"<$file") or push @Messages, "FileTOArray: Can't read from $file: $!";
+  chomp(@return = <FILE>);
+  close(FILE);
+  return @return;
 }
 
 sub GetDiff {
