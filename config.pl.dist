@@ -122,6 +122,10 @@ $Debug = 0;
 #  default.
 $RemoveOldTemp = 60*60*24*7;
 
+# $PostFooter - This variable controls "extra" for the tail end of the footer.
+#  The default value is blank, and is considered a sane default.
+$PostFooter = '';
+
 # $Header and $Footer - These variables are used in "theming" your site. If
 #  either one is blank, the default theme will be used. You can either fill
 #  the variables with content, or import the contents of a file into each.
