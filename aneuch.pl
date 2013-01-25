@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 ## $Id$
 ## **********************************************************************
-## Copyright (c) 2012, Aaron J. Graves (cajunman4life@gmail.com)
+## Copyright (c) 2012-2013, Aaron J. Graves (cajunman4life@gmail.com)
 ## All rights reserved.
 ##
 ## Redistribution and use in source and binary forms, with or without 
