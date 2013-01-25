@@ -40,7 +40,7 @@ $PostFooter $TimeZone $VERSION $EditText $RevisionsText $NewPage $NewComment
 $NavBar $ConfFile $UserIP $UserName $VisitorLog $LockExpire %Filec $MTime
 $RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog
 %Commands %AdminActions %AdminList $RemoveOldTemp $ArgList $ShortDir
-@NavBarPages $BlockedList %PostingActions);
+@NavBarPages $BlockedList %PostingActions $HTTPStatus);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
@@ -849,6 +849,12 @@ sub DoAdminListVisitors {
       } elsif($p[1] eq "(random)") {
 	print " was redirected to a random page from <strong>".QuoteHTML($p[0]).
 	  "</strong>";
+      } else {
+	my $tv = $p[1];
+	$tv =~ s/\(//;
+	$tv =~ s/\)//;
+	print " hit page <strong>".QuoteHTML($p[0])."</strong> (error ".
+	  QuoteHTML($tv).")";
       }
     } else { print " hit page <strong>".QuoteHTML($p[0])."</strong>"; }
     #if(@p == 2) { print ' and was doing "'.$p[1].'"'; }
@@ -1253,6 +1259,12 @@ sub DoVisit {
   my $logentry = "$UserIP\t$TimeStamp\t$ShortPage";
   if($PageRevision) { $logentry .= ".$PageRevision"; }
   if($command) { $logentry .= " ($command)"; }
+  if($HTTPStatus) { 
+    chomp(my $tv = $HTTPStatus);
+    $tv =~ s/Status: //;
+    $tv = (split(/ /,$tv))[0];
+    $logentry .= " ($tv)";
+  }
   $logentry .= "\t$UserName";
   my @rc;
   open(LOGFILE,"<$VisitorLog");
@@ -1418,8 +1430,8 @@ sub IsBlocked {
 sub DoRequest {
   # Blocked?
   if(IsBlocked()) {
-    print "Status: 403 Forbidden\n";
-    print "Content-type: text/html\n\n";
+    $HTTPStatus = "Status: 403 Forbidden\n";
+    print $HTTPStatus . "Content-type: text/html\n\n";
     print '<html><head><title>403 Forbidden</title></head><body>'.
       "<h1>Forbidden</h1><p>You've been banned. Please don't come back.</p>".
       "</body></html>";
@@ -1432,8 +1444,13 @@ sub DoRequest {
     return;
   }
 
+  # Check if page exists or not, and not calling a command
+  if(! -f "$PageDir/$Page" and !$command and !$Commands{$command}) {
+    $HTTPStatus = "Status: 404 Not Found\n";
+  }
+
   # HTTP Header
-  print "Content-type: text/html\n\n";
+  print $HTTPStatus . "Content-type: text/html\n\n";
 
   # Header
   print Interpolate($Header);
