@@ -40,12 +40,12 @@ $PostFooter $TimeZone $VERSION $EditText $RevisionsText $NewPage $NewComment
 $NavBar $ConfFile $UserIP $UserName $VisitorLog $LockExpire %Filec $MTime
 $RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog
 %Commands %AdminActions %AdminList $RemoveOldTemp $ArgList $ShortDir
-@NavBarPages);
+@NavBarPages $BlockedList %PostingActions);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
 
-$VERSION = '0.10 (alpha)';	# Set version number
+$VERSION = '0.20';	# Set version number
 
 # Subs
 sub InitConfig  {
@@ -193,6 +193,7 @@ sub InitVars {
     index => \&DoAdminIndex,		reindex => \&DoAdminReIndex,
     rmlocks => \&DoAdminRemoveLocks,	visitors => \&DoAdminListVisitors,
     lock => \&DoAdminLock,		unlock => \&DoAdminUnlock,
+    block => \&DoAdminBlock,		clearvisits => \&DoAdminClearVisits,
   );
   %AdminList = (		# For the Admin menu
     version => 'View version information',
@@ -200,8 +201,15 @@ sub InitVars {
     reindex => 'Rebuild page index',
     rmlocks => 'Force delete page locks',
     visitors => 'Display visitor log',
+    clearvisits => 'Clear visitor log',
     lock => 'Lock the site for editing/discussions',
     unlock => 'Unlock the site',
+    block => '(Un)Block users',
+  );
+  # Posting actions
+  %PostingActions = (
+    login => \&DoPostingLogin,		editing => \&DoPostingEditing,
+    discuss => \&DoPostingDiscuss,	blocklist => \&DoPostingBlockList,
   );
 }
 
@@ -248,7 +256,7 @@ sub Markup {
     #$line =~ s/^#//;
 
     # Forced line breaks
-    $line =~ s#\\\\#<br/>#;
+    $line =~ s#\\\\#<br/>#g;
 
     # Headers
     $line =~ s#^={5}(.*?)(=*)$#<h5>$1</h5>#;
@@ -399,6 +407,7 @@ sub InitDirs {
   eval { mkdir $TempDir unless -d $TempDir; }; push @Messages, $@ if $@;
   $VisitorLog = "$DataDir/visitors.log";
   $RecentChangesLog = "$DataDir/rc.log";
+  $BlockedList = "$DataDir/banned";
 }
 
 sub LoadPlugins {
@@ -610,6 +619,7 @@ sub Index {
   if(!grep(/^$pg$/,@pagelist)) {
     open(INDEX,">>$DataDir/pageindex") or push @Messages, "Index: Unable to open pageindex for append: $!";
     print INDEX "$pg\n";
+    close(INDEX);
   }
 }
 
@@ -683,7 +693,12 @@ sub AppendFile {
   $F{ts} = $TimeStamp;
   #@{$F{text}} = ();
   #chomp(@{$F{text}} = GetFile($PageDir, $file));
-  %T = GetFile("$PageDir/$file");
+  if(-f "$PageDir/$file") {
+    %T = GetFile("$PageDir/$file");
+  } else {
+    $T{revision} = 0;
+    $T{text} = '';
+  }
   #$T{text} =~ s/\r//g;
   #$T{text} =! s/\n/\n\t/g;
   $F{revision} = $T{revision} + 1;
@@ -755,10 +770,10 @@ sub DoAdminVersion {
 }
 
 sub DoAdminIndex {
-  my @indx;
-  open(INDEX,"<$DataDir/pageindex") or push @Messages, "Admin.index: Unable to read from pageindex: $!";
-  @indx = <INDEX>;
-  close(INDEX);
+  my @indx = FileToArray("$DataDir/pageindex");
+  #open(INDEX,"<$DataDir/pageindex") or push @Messages, "Admin.index: Unable to read from pageindex: $!";
+  #@indx = <INDEX>;
+  #close(INDEX);
   @indx = sort(@indx);
   print '<p>Note: This displays what is in the page index file. If results '.
     'are inaccurate, please run the "Rebuild page index" task from the '.
@@ -773,9 +788,10 @@ sub DoAdminIndex {
 sub DoAdminReIndex {
   # Re-index the site
   my @files = ListAllPages();
-  open(INDEX,">$DataDir/pageindex") or push @Messages, "Admin.reindex: Unable to write to pageindex: $!";
-  print INDEX join("\n",@files) . "\n";
-  close(INDEX);
+  #open(INDEX,">$DataDir/pageindex") or push @Messages, "Admin.reindex: Unable to write to pageindex: $!";
+  #print INDEX join("\n",@files) . "\n";
+  #close(INDEX);
+  StringToFile(join("\n",@files)."\n","$DataDir/pageindex");
   print "<p>Reindex complete. Check page index.</p>";
 }
 
@@ -787,6 +803,13 @@ sub DoAdminRemoveLocks {
   }
   s!^$TempDir/!! for @files;
   print "Removed the following locks:<br/>".join("<br/>",@files);
+}
+
+sub DoAdminClearVisits {
+  open(LOGFILE,">$VisitorLog") or push @Messages, "DoAdminClearVisits: Unable to open $VisitorLog: $!";
+  print LOGFILE "";
+  close(LOGFILE);
+  print "Log file successfully cleared.";
 }
 
 sub DoAdminListVisitors {
@@ -858,6 +881,18 @@ sub DoAdminUnlock {
   } else {
     print "Site is already unlocked!";
   }
+}
+
+sub DoAdminBlock {
+  #my @blocked = FileToArray($BlockedList);
+  my $blocked = FileToString($BlockedList);
+  my @bl = split(/\n/,$blocked);
+  print scalar @bl." user(s) blocked. Add an IP address, one per line, that ".
+    "you wish to block.<br/>";
+  print "<form action='$ShortUrl$ShortScriptName' method='post'>".
+    "<input type='hidden' name='doing' value='blocklist' />".
+    "<textarea name='blocklist' rows='25' cols='100'>".$blocked.
+    "</textarea><input type='submit' value='Save' /></form>";
 }
 
 sub DoAdmin {
@@ -1133,34 +1168,83 @@ sub Preview {
   StringToFile($FORM{'revision'}."\n".$FORM{'text'}, "$TempDir/$tempfile");
 }
 
-sub Posting {
-  #my $action = $FORM{doing};
-  my ($action) = @_ if @_ >= 0;
-  #return unless $action;
-  $ShortPage = $FORM{'file'};
-  my $redir = 1;
-  if($action eq 'login') {
-    SetCookie();
-  }
-  if(($action eq 'editing') and CanEdit()) {
+sub ReDirect {
+  my $loc = shift;
+  print "Location: $loc\n\n";
+}
+
+sub DoPostingLogin {
+  SetCookie();
+  ReDirect($Url.$FORM{'file'});
+}
+
+sub DoPostingEditing {
+  my $redir;
+  if(CanEdit()) {
     if($FORM{'whattodo'} eq "Cancel") {
       UnLock($FORM{'file'});
       my @tfiles = (glob("$TempDir/".$FORM{'file'}.".*"));
       foreach my $file (@tfiles) { unlink $file; }
     } elsif($FORM{'whattodo'} eq "Preview") {
       Preview($FORM{'file'});
-      $redir = 0;
+      $redir = 1;
     } else {
       WriteFile($FORM{'file'}, $FORM{'text'}, $FORM{'uname'});
     }
   }
-  if(($action eq 'discuss') and CanDiscuss()) {
+  if($redir) {
+    ReDirect($Url."?do=edit;page=".$FORM{'file'});
+  } else {
+    ReDirect($Url.$FORM{'file'});
+  }
+}
+
+sub DoPostingDiscuss {
+  if(CanDiscuss()) {
     AppendFile($FORM{'file'}, $FORM{'text'}, $FORM{'uname'}, $FORM{'url'});
   }
-  if($redir) {
-    print "Location: ".$Url.$FORM{'file'}."\n\n";
-  } else {
-    print "Location: ".$Url."?do=edit;page=".$FORM{'file'}."\n\n";
+  ReDirect($Url.$FORM{'file'});
+}
+
+sub DoPostingBlockList {
+  if(IsAdmin()) {
+    StringToFile($FORM{'blocklist'},$BlockedList);
+  }
+  ReDirect($Url."?do=admin;page=block");
+}
+
+sub DoPosting {
+  my $action = $FORM{doing};
+  #my ($action) = @_ if @_ >= 0;
+  #my $action = shift;
+  #return unless $action;
+  $ShortPage = $FORM{'file'};
+  #my $redir = 1;
+  #if($action eq 'login') {
+  #  SetCookie();
+  #}
+  #if(($action eq 'editing') and CanEdit()) {
+  #  if($FORM{'whattodo'} eq "Cancel") {
+  #    UnLock($FORM{'file'});
+  #    my @tfiles = (glob("$TempDir/".$FORM{'file'}.".*"));
+  #    foreach my $file (@tfiles) { unlink $file; }
+  #  } elsif($FORM{'whattodo'} eq "Preview") {
+  #    Preview($FORM{'file'});
+  #    $redir = 0;
+  #  } else {
+  #    WriteFile($FORM{'file'}, $FORM{'text'}, $FORM{'uname'});
+  #  }
+  #}
+  #if(($action eq 'discuss') and CanDiscuss()) {
+  #  AppendFile($FORM{'file'}, $FORM{'text'}, $FORM{'uname'}, $FORM{'url'});
+  #}
+  #if($redir) {
+  #  print "Location: ".$Url.$FORM{'file'}."\n\n";
+  #} else {
+  #  print "Location: ".$Url."?do=edit;page=".$FORM{'file'}."\n\n";
+  #}
+  if($action and $PostingActions{$action}) {	# Does it exist?
+    &{$PostingActions{$action}};		# Run it
   }
 }
 
@@ -1215,6 +1299,7 @@ sub FileToString {
   open(FILE,"<$file") or push @Messages, "FileToString: Can't read from $file: $!";
   @return = <FILE>;
   close(FILE);
+  s/\r//g for @return;
   return join("",@return);
 }
 
@@ -1224,6 +1309,7 @@ sub FileToArray {
   open(FILE,"<$file") or push @Messages, "FileTOArray: Can't read from $file: $!";
   chomp(@return = <FILE>);
   close(FILE);
+  s/\r//g for @return;
   return @return;
 }
 
@@ -1319,10 +1405,30 @@ sub DoRandom {
     'window.location.href="'.$files[$randompage].'"; </script>';
 }
 
+sub IsBlocked {
+  if(!-f $BlockedList) { return 0; }
+  chomp(my @blocked = FileToArray($BlockedList));
+  if(grep(/^$UserIP$/,@blocked)) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
 sub DoRequest {
+  # Blocked?
+  if(IsBlocked()) {
+    print "Status: 403 Forbidden\n";
+    print "Content-type: text/html\n\n";
+    print '<html><head><title>403 Forbidden</title></head><body>'.
+      "<h1>Forbidden</h1><p>You've been banned. Please don't come back.</p>".
+      "</body></html>";
+    return;
+  }
+
   # Are we receiving something?
   if(ReadIn()) {
-    Posting($FORM{doing});
+    DoPosting();
     return;
   }
 
@@ -1556,7 +1662,7 @@ pre { border:0; font-size:10pt; }
 $EditText
 $RevisionsText
 <a title="Administration options" rel="nofollow" href="$ShortUrl?do=admin;page=admin">Admin</a>
-<a title="Random page" rel="nofollow" href="$ShortUrl?do=random;page=$ShortPage">Random Page</a></span><span style="float:right;"><strong>$SiteName</strong>
+<a title="Random page" rel="nofollow" href="$ShortUrl?do=random;page=$ShortPage">Random Page</a></span><span style="float:right;font-size:0.9em;"><strong>$SiteName</strong>
 is powered by <em>Aneuch</em>.</span><br/>
 <span class="mtime">$MTime</span><br/>
 $PostFooter
