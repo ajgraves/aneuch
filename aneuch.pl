@@ -1001,8 +1001,9 @@ sub DoRecentChanges {
       "'>diff</a>, ".
       "<a href='$ShortUrl?do=history;page=$ent[1]".
       "'>history</a>) ";
-    print "<a href='$ShortUrl$ent[1]'>$ent[1]</a> . . . . $ent[2]<br/>".
-    QuoteHTML($ent[3])."</li>";
+    print "<a href='$ShortUrl$ent[1]'>$ent[1]</a> . . . . ".
+      "<a href='$ShortUrl$ent[2]'>$ent[2]</a><br/>".
+      QuoteHTML($ent[3])."</li>";
   }
 }
 
@@ -1524,7 +1525,7 @@ DoMaint();	# Run maintenance commands
 __DATA__
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml"><head>
-<title>$SiteName: $PageName</title>
+<title>$PageName - $SiteName</title>
 <link rel="alternate" type="application/wiki" title="Edit this page" href="$Url?do=edit;page=$ShortPage" />
 <meta name="robots" content="INDEX,FOLLOW" />
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
