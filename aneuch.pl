@@ -91,6 +91,14 @@ sub InitVars {
   $Page =~ s/&/;/g;		# Replace ampersand with semicolon
   $Page =~ s/\+/ /g;		# Replace + with space...
   $Page =~ s!^/!!;		# Remove leading slash, if it exists
+  # Wait! If there's a trailing slash, let's remove and redirect...
+  if($Page =~ m!/$!) {
+    $Page =~ s!/$!!;		# Remove the trailing slash
+    $HTTPStatus = "Status: 301 Moved Permanently"; # Set 301 status
+    print "$HTTPStatus\n";	# 301 Moved for search engines
+    ReDirect($Url.$Page);	# Redirect to the page sans trailing slash
+    exit 0;
+  }
   $Page =~ s/ /_/g;		# Convert spaces to underscore
   $Page =~ s!\.{2,}!!g;		# Remove every instance of double period
   if($Page =~ m/^?do=(.*?)(;page=(.*)|)$/) { # We're getting a command directive
