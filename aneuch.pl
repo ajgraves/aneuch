@@ -1421,6 +1421,10 @@ sub DoDiff {
 sub DoRandom {
   my @files = ListAllPages();
   my $count = @files;
+  if($count < 1) {
+    push @files, $DefaultPage;
+    $count = 1;
+  }
   my $randompage = int(rand($count));
   print '<script language="javascript" type="text/javascript">'.
     'window.location.href="'.$files[$randompage].'"; </script>';
