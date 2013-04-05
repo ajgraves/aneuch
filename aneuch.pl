@@ -40,7 +40,7 @@ $PostFooter $TimeZone $VERSION $EditText $RevisionsText $NewPage $NewComment
 $NavBar $ConfFile $UserIP $UserName $VisitorLog $LockExpire %Filec $MTime
 $RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog
 %Commands %AdminActions %AdminList $RemoveOldTemp $ArgList $ShortDir
-@NavBarPages $BlockedList %PostingActions $HTTPStatus);
+@NavBarPages $BlockedList %PostingActions $HTTPStatus $PurgeRC %MaintActions);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
@@ -73,6 +73,7 @@ sub InitVars {
   $MaxVisitorLog = 1000 unless $MaxVisitorLog;	# Keep at most 1000 entries in
 						#  visitor log
   $RemoveOldTemp = 60*60*24*7 unless $RemoveOldTemp; # > 7 days
+  $PurgeRC = 60*60*24*7 unless $PurgeRC;	# > 7 days
 
   # Some cleanup
   #  Remove trailing slash from $DataDir, if it exists
@@ -219,6 +220,12 @@ sub InitVars {
     login => \&DoPostingLogin,		editing => \&DoPostingEditing,
     discuss => \&DoPostingDiscuss,	blocklist => \&DoPostingBlockList,
   );
+
+  # Maintenance actions
+  %MaintActions = (
+    purgerc => \&DoMaintPurgeRC,	purgetemp => \&DoMaintPurgeTemp,
+    purgeoldr => \&DoMaintPurgeOldRevs,
+  );
 }
 
 sub InitTemplate {
@@ -289,11 +296,15 @@ sub Markup {
     #$line =~ s#^{(.*)$#<$1>#;
     #$line =~ s#^}(.*)$#</$1>#;
 
+    # NOTE: I changed the #s to #m on the next two, to match multi-line.
+    #  However, multiline is impossible the way the markup engine currently
+    #  works (by splitting the text into lines and operating on individual
+    #  lines).
     # UL LI
-    $line =~ s#^[\s\t]*\*{1,5}[ \t](.*)#<li>$1</li>#s;
+    $line =~ s#^[\s\t]*\*{1,5}[ \t](.*)#<li>$1</li>#m;
 
     # OL LI
-    $line =~ s!^[\s\t]*#{1,5}[ \t](.*)!<li>$1</li>!s;
+    $line =~ s!^[\s\t]*#{1,5}[ \t](.*)!<li>$1</li>!m;
 
     # Bold
     $line =~ s#\*{2}(.*?)\*{2}#<strong>$1</strong>#g;
@@ -313,7 +324,7 @@ sub Markup {
     $line =~ s#htt(p|ps):~/~/#htt$1://#g;
 
     # Strikethrough
-    $line =~ s#-{2}(.*?)-{2}#<del>$1</del>#g;
+    $line =~ s#-{2}(.*?\S)-{2}#<del>$1</del>#g;
 
     # Underline
     $line =~ s#_{2}(.*?)_{2}#<span style="text-decoration:underline">$1</span>#g;
@@ -480,7 +491,7 @@ sub CanDiscuss {
   # If lock is set, return false automatically
   if(-f "$DataDir/lock") { return 0; }
   #my ($u, $p) = &ReadCookie;
-  if($SiteMode < 2 and $ShortPage =~ m/^$DiscussPrefix/) {
+  if(($SiteMode < 2 or IsAdmin()) and $ShortPage =~ m/^$DiscussPrefix/) {
     return 1;
   } else {
     return 0;
@@ -1016,6 +1027,8 @@ sub DoRecentChanges {
 }
 
 sub DoSearch {
+  ## NOTE: /x was removed from the match regex's below as it broke search
+  ##   for terms that included spaces... Not sure why I had /x to begin with.
   # First, get a list of all files...
   my @files = (glob("$PageDir/*"));
   # Sort by modification time, newest first
@@ -1023,7 +1036,7 @@ sub DoSearch {
   my $search = $ArgList; #$ShortPage;
   #my $result;
   my %result;
-  print "<p>Search results for &quot;$ArgList&quot;</p>";
+  print "<p>Search results for &quot;$search&quot;</p>";
   foreach my $file (@files) {
     my $fn = $file;
     my $linkedtopage;
@@ -1035,7 +1048,7 @@ sub DoSearch {
       $result{$fn} = '<small>Last modified '.
 	(FriendlyTime($F{ts}))[$TimeZone]."</small><br/>";
     }
-    while($F{text} =~ m/(.{0,25}$search.{0,25})/gsix) {
+    while($F{text} =~ m/(.{0,25}$search.{0,25})/gsi) {
       if(!$linkedtopage) {
 	#$result.="<br/><br/><a href='$ShortUrl$fn'>$fn</a> <small>last updated";
 	#$result.=" ".(FriendlyTime($F{ts}))[$TimeZone]."</small><br/> . . . ";
@@ -1045,7 +1058,7 @@ sub DoSearch {
       }
       if($matchcount == 0) { $result{$fn} .= " . . . "; }
       my $res = QuoteHTML($1); 
-      $res =~ s#(.*?)($search)(.*?)#$1<strong>$2</strong>$3#gsix;
+      $res =~ s#(.*?)($search)(.*?)#$1<strong>$2</strong>$3#gsi;
       #$result .= "$res . . . ";
       $result{$fn} .= "$res . . . ";
       $matchcount++;
@@ -1276,24 +1289,29 @@ sub DoVisit {
   }
   $logentry .= "\t$UserName";
   my @rc;
-  open(LOGFILE,"<$VisitorLog");
-  @rc = <LOGFILE>;
-  close(LOGFILE);
-  push @rc, "$logentry\n";
+  #open(LOGFILE,"<$VisitorLog");
+  open(LOGFILE,">>$VisitorLog");
+  flock(LOGFILE, 2);			# Lock, exclusive
+  seek(LOGFILE, 0, 2);			# In case data was appeded after lock
+  #@rc = <LOGFILE>;
+  #close(LOGFILE);			# Lock is removed upon close
+  #push @rc, "$logentry\n";
   #if($#rc + 1 >= $MaxVisitorLog) {
   #until $#rc <= ($MaxVisitorLog - 1) shift @rc;
-  while(@rc > $MaxVisitorLog) {
-    shift @rc;
-  }
+  #while(@rc > $MaxVisitorLog) {
+  #  shift @rc;
+  #}
   #open(LOGFILE,">>$VisitorLog");
-  open(LOGFILE,">$VisitorLog");
+  #open(LOGFILE,">$VisitorLog");
+  #flock(LOGFILE, 2);			# Lock, exclusive
   #print LOGFILE "$logentry\n";
-  print LOGFILE join("",@rc);
-  close(LOGFILE);
+  #print LOGFILE join("",@rc);
+  print LOGFILE "$logentry\n";
+  close(LOGFILE);			# Lock is removed upon close
   #system("tail -n $MaxVisitorLog $VisitorLog > $VisitorLog");
 }
 
-sub DoMaint {
+sub DoMaintPurgeTemp {
   # Remove files from temp older than $RemoveOldTemp
   # First, get all files
   my @filelist = (glob("$TempDir/*"));
@@ -1304,6 +1322,34 @@ sub DoMaint {
     if((stat($file))[9] <= $cutoff) {
       unlink $file;
     }
+  }
+}
+
+sub DoMaintPurgeRC {
+  # Remove old RC entries
+  # First, read the RC file
+  my @rclines = FileToArray($RecentChangesLog);
+  my @newrc;
+  # Determine cutoff
+  my $cutoff = $TimeStamp - $PurgeRC;
+  # Walk through the entries, and remove them if they are older...
+  foreach my $entry (@rclines) {
+    if((split(/\t/,$entry))[4] > $cutoff) {
+      push @newrc, $entry;
+    }
+  }
+  StringToFile(join("\n",@newrc), $RecentChangesLog);
+}
+
+sub DoMaintPurgeOldRevs {
+  # Purge old revisions
+}
+
+sub DoMaint {
+  # Run each maintenance task
+  my $key;
+  foreach $key (keys %MaintActions) {	# Step through list, and...
+    &{$MaintActions{$key}};		# Execute
   }
 }
 
@@ -1513,7 +1559,7 @@ sub DoRequest {
     if($ShortPage eq 'RecentChanges') {
       DoRecentChanges();
     }
-    if($ShortPage =~ m/^$DiscussPrefix/ and $SiteMode < 2) {
+    if($ShortPage =~ m/^$DiscussPrefix/ and ($SiteMode < 2 or IsAdmin())) {
       print DoDiscuss();
     }
   }
