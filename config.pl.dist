@@ -122,6 +122,11 @@ $Debug = 0;
 #  default.
 $RemoveOldTemp = 60*60*24*7;
 
+# $PurgeRC - This variable controls how long an item may stay on the Recent
+#  Changes list. It contains a number of seconds. The default value is 7 days,
+#  or 60*60*24*7 (604,800) seconds, and is considered a sane default.
+$PurgeRC = 60*60*24*7;
+
 # $PostFooter - This variable controls "extra" for the tail end of the footer.
 #  The default value is blank, and is considered a sane default.
 $PostFooter = '';
