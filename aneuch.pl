@@ -1338,7 +1338,7 @@ sub DoMaintPurgeRC {
       push @newrc, $entry;
     }
   }
-  StringToFile(join("\n",@newrc), $RecentChangesLog);
+  StringToFile(join("\n",@newrc) . "\n", $RecentChangesLog);
 }
 
 sub DoMaintPurgeOldRevs {
