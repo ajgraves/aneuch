@@ -1001,6 +1001,11 @@ sub DoRecentChanges {
   } else {
     $tz = strftime "%Z", localtime(time);
   }
+  # If none, say so.
+  if(($rc[0] eq "") or (@rc == 0)) {
+    print "No recent changes.";
+    return;
+  }
   # Sort them
   @rc = sort { $b <=> $a } (@rc);
   # Now show them...
@@ -1328,7 +1333,7 @@ sub DoMaintPurgeTemp {
 sub DoMaintPurgeRC {
   # Remove old RC entries
   # First, read the RC file
-  my @rclines = FileToArray($RecentChangesLog);
+  chomp(my @rclines = FileToArray($RecentChangesLog));
   my @newrc;
   # Determine cutoff
   my $cutoff = $TimeStamp - $PurgeRC;
@@ -1338,7 +1343,10 @@ sub DoMaintPurgeRC {
       push @newrc, $entry;
     }
   }
-  StringToFile(join("\n",@newrc) . "\n", $RecentChangesLog);
+  my $rcout = join("\n",@newrc) . "\n";
+  if(@newrc != @rclines) {	# Only write out if there's a difference!
+    StringToFile($rcout, $RecentChangesLog);
+  }
 }
 
 sub DoMaintPurgeOldRevs {
