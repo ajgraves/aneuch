@@ -531,10 +531,11 @@ sub LogRecent {
 sub RefreshLock {
   # Refresh a lock on $Page
   if(-f "$TempDir/$Page.lock") {
-    open(LOCK,"<$TempDir/$Page.lock") or push @Messages, "Error opening $Page.lock for read: $!";
-    my @lock = <LOCK>;
-    close(LOCK);
-    chomp(@lock);
+    #open(LOCK,"<$TempDir/$Page.lock") or push @Messages, "Error opening $Page.lock for read: $!";
+    #my @lock = <LOCK>;
+    #close(LOCK);
+    #chomp(@lock);
+    chomp(my @lock = FileToArray("$TempDir/$Page.lock"));
     if($lock[0] eq $UserIP and $lock[1] eq $UserName) {
       $lock[2] = $TimeStamp;
       open(LOCK,">$TempDir/$Page.lock") or push @Messages, "RefreshLock: Error opening $Page.lock for write: $!";
@@ -608,13 +609,24 @@ sub SetLock {
   }
   # Set a lock on $Page
   if(-f "$TempDir/$Page.lock") {
-    open(LOCK,"<$TempDir/$Page.lock") or push @Messages, "Error opening $Page.lock for read: $!";
-    my @lock = <LOCK>;
-    close(LOCK);
-    chomp(@lock);
-    print "<p><span style='color:red'>This file is locked by <strong>$lock[0] ($lock[1])</strong> since <strong>" . (FriendlyTime($lock[2]))[$TimeZone] . "</strong>.</span>";
-    print "<br/>Lock should expire by " . (FriendlyTime($lock[2] + $LockExpire))[$TimeZone] . ", and it is now " . (FriendlyTime())[$TimeZone] . ".</p>";
-    return 0;
+    #open(LOCK,"<$TempDir/$Page.lock") or push @Messages, "Error opening $Page.lock for read: $!";
+    #my @lock = <LOCK>;
+    #close(LOCK);
+    #chomp(@lock);
+    chomp(my @lock = FileToArray("$TempDir/$Page.lock"));
+    my ($u, $p) = ReadCookie();
+    if($lock[0] != $UserIP and $lock[1] ne $u) {
+      print "<p><span style='color:red'>This file is locked by <strong>".
+	"$lock[0] ($lock[1])</strong> since <strong>".
+	(FriendlyTime($lock[2]))[$TimeZone]."</strong>.</span>";
+      print "<br/>Lock should expire by ".
+	(FriendlyTime($lock[2] + $LockExpire))[$TimeZone].", and it is now ".
+	(FriendlyTime())[$TimeZone].".</p>";
+      return 0;
+    } else {
+      # Let's refresh the lock!
+      RefreshLock();
+    }
   } else {
     open(LOCK,">$TempDir/$Page.lock") or push @Messages, "Error opening $Page.lock for write: $!";
     print LOCK "$UserIP\n$UserName\n$TimeStamp";
