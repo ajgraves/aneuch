@@ -519,7 +519,7 @@ sub LogRecent {
     close(RCL);
   }
   # Remove any old entry...
-  @rc = grep(!/^$day(\d{6})\t$file/,@rc);
+  @rc = grep(!/^$day(\d{6})\t$file\t/,@rc);
   # Now update...
   push @rc, "$day$time\t$file\t$un\t$mess\t$TimeStamp\n";
   # Now write it back out...
@@ -1148,8 +1148,7 @@ sub DoHistory {
     }
     print " . . . . <a href=\"$ShortUrl" . QuoteHTML($f{author}) . "\">".
       QuoteHTML($f{author}) . "</a>";
-    print " &ndash; <strong>" . QuoteHTML($f{summary});
-    print "</strong><br/>";
+    print " &ndash; " . QuoteHTML($f{summary}) . "<br/>";
 
     if($ArchiveDir and $ShortDir and -d "$ArchiveDir/$ShortDir") {
       my @history = (glob("$ArchiveDir/$ShortDir/$Page.*"));
@@ -1176,8 +1175,7 @@ sub DoHistory {
 	}
 	print " . . . . <a href=\"$ShortUrl" . QuoteHTML($f{author}) . "\">".
 	  QuoteHTML($f{author}) . "</a>";
-        print " &ndash; <strong>" . QuoteHTML($f{summary});
-        print "</strong><br/>";
+        print " &ndash; " . QuoteHTML($f{summary}) . "<br/>";
       }
     }
     print "</p>";
