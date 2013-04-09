@@ -127,6 +127,12 @@ $RemoveOldTemp = 60*60*24*7;
 #  or 60*60*24*7 (604,800) seconds, and is considered a sane default.
 $PurgeRC = 60*60*24*7;
 
+# $PurgeArchives - This variable controls how long an archived page can stick
+#  around. Each time a modification is made, the "old" version of the page is
+#  archived. The default is 30 days, and is considered a sane default. Set this
+#  to -1 to keep every revision ever made.
+$PurgeArchives = 60*60*24*30;
+
 # $PostFooter - This variable controls "extra" for the tail end of the footer.
 #  The default value is blank, and is considered a sane default.
 $PostFooter = '';
