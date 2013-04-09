@@ -40,7 +40,8 @@ $PostFooter $TimeZone $VERSION $EditText $RevisionsText $NewPage $NewComment
 $NavBar $ConfFile $UserIP $UserName $VisitorLog $LockExpire %Filec $MTime
 $RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog
 %Commands %AdminActions %AdminList $RemoveOldTemp $ArgList $ShortDir
-@NavBarPages $BlockedList %PostingActions $HTTPStatus $PurgeRC %MaintActions);
+@NavBarPages $BlockedList %PostingActions $HTTPStatus $PurgeRC %MaintActions
+$PurgeArchives);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
@@ -74,6 +75,7 @@ sub InitVars {
 						#  visitor log
   $RemoveOldTemp = 60*60*24*7 unless $RemoveOldTemp; # > 7 days
   $PurgeRC = 60*60*24*7 unless $PurgeRC;	# > 7 days
+  $PurgeArchives = 60*60*24*30 unless $PurgeArchives;	# > 30 days
 
   # Some cleanup
   #  Remove trailing slash from $DataDir, if it exists
@@ -196,6 +198,7 @@ sub InitVars {
     admin => \&DoAdmin,		edit => \&DoEdit,
     search => \&DoSearch,	history => \&DoHistory,
     random => \&DoRandom,	diff => \&DoDiff,
+    delete => \&DoDelete,
   );
   %AdminActions = (		# List of admin actions, and their subs
     password => \&DoAdminPassword,	version => \&DoAdminVersion,
@@ -588,6 +591,8 @@ sub DoEdit {
     if(@preview or SetLock()) {
       print 'Summary: <input type="text" name="summary" size="60" />';
       print ' User name: <input type="text" name="uname" size="12" value="'.$UserName.'" /> ';
+      print ' <a href="'.$ShortUrl.'?do=delete;page='.$ShortPage.'">'.
+	'Delete Page</a> ';
       print '<input type="submit" name="whattodo" value="Save" /> ';
       print '<input type="submit" name="whattodo" value="Preview" /> ';
       print '<input type="submit" name="whattodo" value="Cancel" />';
@@ -811,7 +816,7 @@ sub DoAdminReIndex {
   #print INDEX join("\n",@files) . "\n";
   #close(INDEX);
   StringToFile(join("\n",@files)."\n","$DataDir/pageindex");
-  print "<p>Reindex complete. Check page index.</p>";
+  print "Reindex complete.";
 }
 
 sub DoAdminRemoveLocks {
@@ -868,6 +873,8 @@ sub DoAdminListVisitors {
       } elsif($p[1] eq "(random)") {
 	print " was redirected to a random page from <strong>".QuoteHTML($p[0]).
 	  "</strong>";
+      } elsif($p[1] eq "(delete)") {
+	print " was deleting the page <strong>".QuoteHTML($p[0])."</strong>";
       } else {
 	my $tv = $p[1];
 	$tv =~ s/\(//;
@@ -1139,7 +1146,8 @@ sub DoHistory {
     if($f{revision} > 1) {
       print " (<a href='$ShortUrl?do=diff;page=$Page'>diff</a>)";
     }
-    print " . . . . " . QuoteHTML($f{author});
+    print " . . . . <a href=\"$ShortUrl" . QuoteHTML($f{author}) . "\">".
+      QuoteHTML($f{author}) . "</a>";
     print " &ndash; <strong>" . QuoteHTML($f{summary});
     print "</strong><br/>";
 
@@ -1166,7 +1174,8 @@ sub DoHistory {
  	  print " (<a href='$ShortUrl?do=diff;page=$Page;rev=$nextrev'>".
 	    "diff</a>)";
 	}
-        print " . . . . $f{author}";
+	print " . . . . <a href=\"$ShortUrl" . QuoteHTML($f{author}) . "\">".
+	  QuoteHTML($f{author}) . "</a>";
         print " &ndash; <strong>" . QuoteHTML($f{summary});
         print "</strong><br/>";
       }
@@ -1482,6 +1491,67 @@ sub DoRandom {
   my $randompage = int(rand($count));
   print '<script language="javascript" type="text/javascript">'.
     'window.location.href="'.$files[$randompage].'"; </script>';
+}
+
+sub PageExists {
+  my $pagename = shift;
+  if(-f "$PageDir/$pagename") {
+    return 1;
+  } else { return 0; }
+}
+
+sub DoDelete {
+  # Delete pages
+  # Can edit?
+  if(!CanEdit) {
+    print "You can't perform this operation.";
+    return;
+  }
+  # Does page exist?
+  if(!PageExists($ShortPage)) {
+    print "That page doesn't exist!";
+    return;
+  }
+  if($ArgList eq "confirm=yes") {
+    # Delete the page
+    print "<p>Removing page... ";
+    if(unlink "$PageDir/$ShortPage") {
+      print "Done!</p>";
+    } else {
+      print "Error: $!</p>";
+    }
+    # Delete revisions
+    print "<p>Removing any archived versions... ";
+    my @arvers = glob("$ArchiveDir/$ShortDir/$ShortPage.*");
+    if(@arvers) {
+      print "<br/>Found " . scalar @arvers . " revisions, removing... ";
+      foreach (@arvers) {
+	unlink $_;
+      }
+    } else {
+      print "No revisions found. Done.</p>";
+    }
+    # Rebuild page index
+    print "<p>Rebuilding page index... ";
+    DoAdminReIndex();
+    print "</p>";
+    # Remove entries from rc.log
+    print "<p>Removing any instances of $ShortPage from rc.log... ";
+    chomp(my @rclines = FileToArray($RecentChangesLog));
+    my @newrc = grep(!/^\d{14}\t$ShortPage\t.*$/, @rclines);
+    my $rcout = join("\n",@newrc) . "\n";
+    if(@newrc != @rclines) {      # Only write out if there's a difference!
+      StringToFile($rcout, $RecentChangesLog);
+    }
+    print "Done.</p>";
+    print "<p><strong>Page $ShortPage successfully deleted!</strong></p>";
+  } else {
+    # Do we want to delete it?
+    print "<p>Are you sure you want to delete the page <strong>&quot;".
+      "$ShortPage&quot;</strong>? This cannot be undone!</p>";
+    print "<p><a href='$ShortUrl?do=delete;page=$ShortPage;confirm=yes'>YES</a>";
+    print "&nbsp;&nbsp; <a href='javascript:history.go(-1)'>NO</a></p>";
+  }
 }
 
 sub IsBlocked {
