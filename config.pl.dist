@@ -129,9 +129,10 @@ $PurgeRC = 60*60*24*7;
 
 # $PurgeArchives - This variable controls how long an archived page can stick
 #  around. Each time a modification is made, the "old" version of the page is
-#  archived. The default is 30 days, and is considered a sane default. Set this
-#  to -1 to keep every revision ever made.
-$PurgeArchives = 60*60*24*30;
+#  archived. The default is to keep all (-1), and is considered a sane default.
+#  Set this to -1 to 0 to keep no revisions, or x number of seconds (for
+#  example, 60*60*24*30 for 30 days)
+$PurgeArchives = -1;
 
 # $PostFooter - This variable controls "extra" for the tail end of the footer.
 #  The default value is blank, and is considered a sane default.
