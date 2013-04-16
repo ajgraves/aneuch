@@ -30,6 +30,7 @@
 package Aneuch;
 use strict;
 use POSIX qw(strftime);
+use Fcntl qw(:flock :seek); # import LOCK_* and SEEK_END constants
 #use CGI::Carp qw(fatalsToBrowser);
 # Some variables
 use vars qw($DataDir $SiteName $Page $ShortPage @Passwords $PageDir $ArchiveDir
@@ -75,7 +76,8 @@ sub InitVars {
 						#  visitor log
   $RemoveOldTemp = 60*60*24*7 unless $RemoveOldTemp; # > 7 days
   $PurgeRC = 60*60*24*7 unless $PurgeRC;	# > 7 days
-  $PurgeArchives = 60*60*24*30 unless $PurgeArchives;	# > 30 days
+  #$PurgeArchives = 60*60*24*30 unless $PurgeArchives;	# > 30 days
+  $PurgeArchives = -1 unless $PurgeArchives;	# Default to keep all!
 
   # Some cleanup
   #  Remove trailing slash from $DataDir, if it exists
@@ -114,14 +116,14 @@ sub InitVars {
     $command =~ s/^\?//;	# Get rid of leading '?', if it's there.
   }
   if($Page eq "") { $Page = $DefaultPage };	# Default if blank
-  if($Page =~ m/\.(\d+)$/) {	# Page revision being requested?
-    $PageRevision = $1;		# Set it.
-  }
-  $Page =~ s/\.[\w\d]+$//;	# Remove all extensions
+  #if($Page =~ m/\.(\d+)$/) {	# Page revision being requested?
+  #  $PageRevision = $1;		# Set it.
+  #}
+  #$Page =~ s/\.[\w\d]+$//;	# Remove all extensions
   # FIXME: $ShortPage and $Page are now the same... we can get rid of one.
-  $ShortPage = $Page;		# ShortPage is Page sans extension
-  $ShortPage =~ s/\.[a-z]{3,4}$//; # Remove extension
-  $PageName = $ShortPage;	# PageName is ShortPage with spaces
+  #$ShortPage = $Page;		# ShortPage is Page sans extension
+  #$ShortPage =~ s/\.[a-z]{3,4}$//; # Remove extension
+  $PageName = $Page;		# PageName is ShortPage with spaces
   $PageName =~ s/_/ /g;		# Change underscore to space
 
   $ShortDir = substr($Page,0,1);	# Get first letter
@@ -132,20 +134,20 @@ sub InitVars {
   if($command and $command eq 'admin') {
     $PageName = 'Admin';
     #$ShortPage = '';
-    $Page = '';
+    #$Page = '';
   }
 
   # Discuss links
   if(!$command) { #or $command ne 'admin') {
-    if($ShortPage !~ m/^$DiscussPrefix/) {
-      $DiscussLink = $ShortUrl . $DiscussPrefix . $ShortPage;
+    if($Page !~ m/^$DiscussPrefix/) {
+      $DiscussLink = $ShortUrl . $DiscussPrefix . $Page;
       $DiscussText = $DiscussPrefix;
       $DiscussText =~ s/_/ /g;
-      $DiscussText .= $ShortPage;
+      $DiscussText .= $Page;
       $DiscussText = '<a title="'.$DiscussText.'" href="'.$DiscussLink.'">'.
 	$DiscussText.'</a>';
     } else {
-      $DiscussLink = $ShortPage;
+      $DiscussLink = $Page;
       $DiscussLink =~ s/^$DiscussPrefix//;
       $DiscussText = $DiscussLink;
       $DiscussLink = $ShortUrl . $DiscussLink;
@@ -154,13 +156,13 @@ sub InitVars {
     }
     if(CanEdit()) {
       $EditText = '<a title="Click to edit this page" rel="nofollow" href="'.
-	$ShortUrl.'?do=edit;page='.$ShortPage.'">Edit '.$ShortPage.'</a>';
+	$ShortUrl.'?do=edit;page='.$Page.'">Edit '.$Page.'</a>';
     } else {
       $EditText = '<a title="Read only page" rel="nofollow" href="'.$ShortUrl.
-	'?do=edit;page='.$ShortPage.'">This page is read only</a>';
+	'?do=edit;page='.$Page.'">This page is read only</a>';
     }
     $RevisionsText = '<a title="Click here to see revision history" '.
-      'rel="nofollow" href="'.$ShortUrl.'?do=history;page='.$ShortPage.
+      'rel="nofollow" href="'.$ShortUrl.'?do=history;page='.$Page.
       '">View page history</a>';
   }
 
@@ -198,7 +200,7 @@ sub InitVars {
     admin => \&DoAdmin,		edit => \&DoEdit,
     search => \&DoSearch,	history => \&DoHistory,
     random => \&DoRandom,	diff => \&DoDiff,
-    delete => \&DoDelete,
+    delete => \&DoDelete,	revision => \&DoRevision,
   );
   %AdminActions = (		# List of admin actions, and their subs
     password => \&DoAdminPassword,	version => \&DoAdminVersion,
@@ -227,7 +229,7 @@ sub InitVars {
   # Maintenance actions
   %MaintActions = (
     purgerc => \&DoMaintPurgeRC,	purgetemp => \&DoMaintPurgeTemp,
-    purgeoldr => \&DoMaintPurgeOldRevs,
+    purgeoldr => \&DoMaintPurgeOldRevs, trimvisit => \&DoMaintTrimVisit,
   );
 }
 
@@ -494,7 +496,7 @@ sub CanDiscuss {
   # If lock is set, return false automatically
   if(-f "$DataDir/lock") { return 0; }
   #my ($u, $p) = &ReadCookie;
-  if(($SiteMode < 2 or IsAdmin()) and $ShortPage =~ m/^$DiscussPrefix/) {
+  if(($SiteMode < 2 or IsAdmin()) and $Page =~ m/^$DiscussPrefix/) {
     return 1;
   } else {
     return 0;
@@ -576,7 +578,7 @@ sub DoEdit {
   if($canedit) {
     print '<form action="' . $ShortUrl . $ShortScriptName . '" method="post">';
     print '<input type="hidden" name="doing" value="editing">';
-    print '<input type="hidden" name="file" value="' . $ShortPage . '">';
+    print '<input type="hidden" name="file" value="' . $Page . '">';
     print '<input type="hidden" name="revision" value="'. $revision . '">';
     if(-f "$PageDir/$Page") {
       print '<input type="hidden" name="mtime" value="' . (stat("$PageDir/$Page"))[9] . '">';
@@ -592,7 +594,7 @@ sub DoEdit {
     if(@preview or SetLock()) {
       print 'Summary: <input type="text" name="summary" size="60" />';
       print ' User name: <input type="text" name="uname" size="12" value="'.$UserName.'" /> ';
-      print ' <a href="'.$ShortUrl.'?do=delete;page='.$ShortPage.'">'.
+      print ' <a href="'.$ShortUrl.'?do=delete;page='.$Page.'">'.
 	'Delete Page</a> ';
       print '<input type="submit" name="whattodo" value="Save" /> ';
       print '<input type="submit" name="whattodo" value="Preview" /> ';
@@ -646,7 +648,7 @@ sub UnLock {
 }
 
 sub Index {
-  my $pg = $ShortPage;
+  my $pg = $Page;
   ($pg) = @_ if @_ >= 1;
   #if($pg =~ m/^$DiscussPrefix/) { return; }	# Don't index Discussion pages
   open(INDEX,"<$DataDir/pageindex") or push @Messages, "Index: Unable to open pageindex for read: $!";
@@ -850,9 +852,10 @@ sub DoAdminClearVisits {
 
 sub DoAdminListVisitors {
   # Display the visitors.log file
-  open(LOGFILE,"<$VisitorLog") or push @Messages, "DoAdminListVisitors: Unable to open $VisitorLog: $!";
-  my @lf = <LOGFILE>;
-  close(LOGFILE);
+  #open(LOGFILE,"<$VisitorLog") or push @Messages, "DoAdminListVisitors: Unable to open $VisitorLog: $!";
+  #my @lf = <LOGFILE>;
+  #close(LOGFILE);
+  my @lf = FileToArray($VisitorLog);
   @lf = reverse(@lf);	# Most recent entries are on bottom... fix that.
   chomp(@lf);
   my $curdate;
@@ -867,26 +870,34 @@ sub DoAdminListVisitors {
     print QuoteHTML($e[0])."</strong> (<strong>".QuoteHTML($e[3])."</strong>)";
     #if(@e == 4) { print " (logged in as <strong>".$e[3]."</strong>)"; }
     my @p = split(/\s+/,$e[2]);
-    if(@p == 2) {
-      if($p[1] eq "(edit)") {
+    if(@p > 1) {
+      #$p[1] =~ tr/(//d;
+      tr/(//d for @p;
+      #$p[1] =~ tr/)//d; print $p[1];
+      tr/)//d for @p;
+      if($p[1] eq "edit") {
 	print " was editing <strong>".QuoteHTML($p[0])."</strong>";
-      } elsif($p[1] eq "(history)") {
+      } elsif($p[1] eq "history") {
 	print " was viewing the history of <strong>".QuoteHTML($p[0]).
 	  "</strong>";
-      } elsif($p[1] eq "(search)") {
+      } elsif($p[1] eq "search") {
 	print " was searching for <strong>&quot;".QuoteHTML($p[0]).
 	  "&quot;</strong>";
-      } elsif($p[1] eq "(diff)") {
+      } elsif($p[1] eq "diff") {
 	print " was viewing differences on <strong>".QuoteHTML($p[0]).
 	  "</strong>";
-      } elsif($p[1] eq "(admin)") {
+      } elsif($p[1] eq "admin") {
 	print " was in Administrative mode, doing <strong>".QuoteHTML($p[0]).
 	  "</strong>";
-      } elsif($p[1] eq "(random)") {
+      } elsif($p[1] eq "random") {
 	print " was redirected to a random page from <strong>".QuoteHTML($p[0]).
 	  "</strong>";
-      } elsif($p[1] eq "(delete)") {
+      } elsif($p[1] eq "delete") {
 	print " was deleting the page <strong>".QuoteHTML($p[0])."</strong>";
+      } elsif($p[1] =~ m/revision(\d{1,})/) { 
+        print " was viewing revision <strong>$1</strong> of page <strong>".
+	  QuoteHTML($p[0])."</strong>";
+	if($p[2]) { print " (error $p[2])"; }
       } else {
 	my $tv = $p[1];
 	$tv =~ s/\(//;
@@ -942,9 +953,9 @@ sub DoAdminBlock {
 sub DoAdmin {
   #my ($u,$p) = &ReadCookie;
   # Command? And can we run it?
-  if($ShortPage and $AdminActions{$ShortPage}) {
-    if($ShortPage eq 'password' or IsAdmin()) {
-      &{$AdminActions{$ShortPage}};			# Execute it.
+  if($Page and $AdminActions{$Page}) {
+    if($Page eq 'password' or IsAdmin()) {
+      &{$AdminActions{$Page}};			# Execute it.
     }
   } else {
     print '<p>You may:<ul><li><a href="'.$ShortUrl.
@@ -996,7 +1007,7 @@ sub DoDiscuss {
   }
   push @returndiscuss, "<form action='$ShortUrl$ShortScriptName' method='post'>";
   push @returndiscuss, "<input type='hidden' name='doing' value='discuss' />";
-  push @returndiscuss, "<input type='hidden' name='file' value='$ShortPage' />";
+  push @returndiscuss, "<input type='hidden' name='file' value='$Page' />";
   push @returndiscuss, "<textarea name='text' cols='80' rows='5'>$NewComment</textarea>";
   push @returndiscuss, "Name: <input type='text' name='uname' width='12' value='$UserName' /> ";
   push @returndiscuss, "URL (optional): <input type='text' name='url' width='12' />";
@@ -1164,7 +1175,10 @@ sub DoHistory {
 
     if($ArchiveDir and $ShortDir and -d "$ArchiveDir/$ShortDir") {
       my @history = (glob("$ArchiveDir/$ShortDir/$Page.*"));
-      @history = reverse(@history);
+      #@history = reverse(@history);
+      # This sort MUST be done by file mod time the way archive is currently
+      #  laid out (file.x, file.xx, etc).
+      @history = sort { -M $a <=> -M $b } @history;
       #my $revision = @history + 1;
       foreach my $c (@history) {
 	%f = GetFile($c);
@@ -1179,8 +1193,10 @@ sub DoHistory {
 	} else {
 	  $nextrev = ''.($f{revision} - 1).'.'.$f{revision};
 	}
-	print HM($f{ts})." <a href=\"$ShortUrl$Page.$f{revision}\"> Revision ".
-          $f{revision}."</a>";
+	#print HM($f{ts})." <a href=\"$ShortUrl$Page.$f{revision}\"> Revision ".
+        #  $f{revision}."</a>";
+	print HM($f{ts})." <a href=\"$ShortUrl?do=revision;page=$Page;".
+	  "rev=$f{revision}\"> Revision $f{revision}</a>";
 	if($nextrev) {
  	  print " (<a href='$ShortUrl?do=diff;page=$Page;rev=$nextrev'>".
 	    "diff</a>)";
@@ -1212,7 +1228,7 @@ sub Preview {
   # Preview will show us what changes would look like
   my $file = shift;
   # First off, we need to save a temp file...
-  my $tempfile = $ShortPage.".".$UserName;
+  my $tempfile = $Page.".".$UserName;
   # Save contents to temp file
   #open(TEMPFILE, ">$TempDir/$tempfile") or push @Messages, "Preview: Unable to write to temp file: $!";
   #print TEMPFILE $FORM{'revision'}."\n".$FORM{'text'};
@@ -1270,7 +1286,7 @@ sub DoPosting {
   #my ($action) = @_ if @_ >= 0;
   #my $action = shift;
   #return unless $action;
-  $ShortPage = $FORM{'file'};
+  $Page = $FORM{'file'};
   #my $redir = 1;
   #if($action eq 'login') {
   #  SetCookie();
@@ -1302,8 +1318,9 @@ sub DoPosting {
 
 sub DoVisit {
   # Log a visit to the visitor log
-  my $logentry = "$UserIP\t$TimeStamp\t$ShortPage";
-  if($PageRevision) { $logentry .= ".$PageRevision"; }
+  my $logentry = "$UserIP\t$TimeStamp\t$Page";
+  #if($PageRevision) { $logentry .= ".$PageRevision"; }
+  if($PageRevision) { $command .= "$PageRevision"; }
   if($command) { $logentry .= " ($command)"; }
   if($HTTPStatus) { 
     chomp(my $tv = $HTTPStatus);
@@ -1315,21 +1332,8 @@ sub DoVisit {
   my @rc;
   #open(LOGFILE,"<$VisitorLog");
   open(LOGFILE,">>$VisitorLog");
-  flock(LOGFILE, 2);			# Lock, exclusive
-  seek(LOGFILE, 0, 2);			# In case data was appeded after lock
-  #@rc = <LOGFILE>;
-  #close(LOGFILE);			# Lock is removed upon close
-  #push @rc, "$logentry\n";
-  #if($#rc + 1 >= $MaxVisitorLog) {
-  #until $#rc <= ($MaxVisitorLog - 1) shift @rc;
-  #while(@rc > $MaxVisitorLog) {
-  #  shift @rc;
-  #}
-  #open(LOGFILE,">>$VisitorLog");
-  #open(LOGFILE,">$VisitorLog");
-  #flock(LOGFILE, 2);			# Lock, exclusive
-  #print LOGFILE "$logentry\n";
-  #print LOGFILE join("",@rc);
+  flock(LOGFILE, LOCK_EX);		# Lock, exclusive
+  seek(LOGFILE, 0, SEEK_END);		# In case data was appeded after lock
   print LOGFILE "$logentry\n";
   close(LOGFILE);			# Lock is removed upon close
   #system("tail -n $MaxVisitorLog $VisitorLog > $VisitorLog");
@@ -1369,7 +1373,45 @@ sub DoMaintPurgeRC {
 }
 
 sub DoMaintPurgeOldRevs {
-  # Purge old revisions
+  # Purge old revisions...
+  # If -1, simply exit as the admin wants to keep all revisions
+  if($PurgeArchives == -1) { return; }
+  # Determine the timestamp for removal
+  my $RemoveTime = $TimeStamp - $PurgeArchives;
+  # Get list of files
+  my @files = glob("$ArchiveDir/*/*.*");
+  # Walk through each file and remove if it's older...
+  foreach my $f (@files) {
+    #if((stat("$f"))[9] <= $RemoveTime) { unlink $f; }
+    my %fc = GetFile($f);
+    if($fc{ts} <= $RemoveTime) { unlink $f; }
+  }
+}
+
+sub DoMaintTrimVisit {
+  # Trim visitor log...
+  # Open file and lock it...
+  #return;
+  chomp(my @lf = FileToArray($VisitorLog));	# Read in
+  if(scalar @lf > $MaxVisitorLog) {
+    open(LOGFILE,">$VisitorLog") or return;	# Return if can't open
+    flock(LOGFILE,LOCK_EX) or return;	# Exclusive lock or return
+    seek(LOGFILE, 0, SEEK_SET);		# Beginning
+    #chomp(my @lf = <LOGFILE>);
+    #print STDERR "Count: $#lf\n";
+    #if($#lf > $MaxVisitorLog) {
+    @lf = reverse(@lf);
+    #my @new = @lf[ 0 .. $MaxVisitorLog - $#lf ];
+    #splice @lf, $MaxVisitorLog - $#lf;
+    my @new = @lf[0 .. ($MaxVisitorLog - 1)];
+    #@lf = reverse(@lf);
+    @lf = reverse(@new);
+    seek(LOGFILE, 0, SEEK_SET);		# Return to the beginning
+    print LOGFILE "" . join("\n", @lf) . "\n";
+    close(LOGFILE);
+  }
+  #flock(LOGFILE,LOCK_UN);
+  #close(LOGFILE);
 }
 
 sub DoMaint {
@@ -1383,6 +1425,8 @@ sub DoMaint {
 sub StringToFile {
   my ($string, $file) = @_;
   open(FILE,">$file") or push @Messages, "StringToFile: Can't write to $file: $!";
+  flock(FILE,LOCK_EX);		# Exclusive lock
+  seek(FILE, 0, SEEK_SET);	# Beginning
   print FILE $string;
   close(FILE);
 }
@@ -1460,7 +1504,7 @@ sub DoDiff {
   #my $ShortDir = substr($ShortPage,0,1); $shortdir =~ tr/[a-z]/[A-Z]/;
   # If there are no more arguments, assume we want most recent diff
   if(!$ArgList) {
-    my %F = GetFile("$PageDir/$ShortPage");
+    my %F = GetFile("$PageDir/$Page");
     #return $F{diff};
     print HTMLDiff($F{diff});
     print "<hr/>";
@@ -1472,8 +1516,8 @@ sub DoDiff {
   } else {
     if($ArgList =~ m/^rev=(\d+)($|\.?(\d+))/) {
       my %F;
-      my $oldrev = "$ShortPage.$1"; #"$ArchiveDir/$shortdir/$ShortPage.$1";
-      my $newrev = $3 ? "$ShortPage.$3" : "$ShortPage";
+      my $oldrev = "$Page.$1"; #"$ArchiveDir/$shortdir/$ShortPage.$1";
+      my $newrev = $3 ? "$Page.$3" : "$Page";
       print "<p>Comparing revision $1 to " . ($3 ? $3 : "current") . "</p>";
       print HTMLDiff(GetDiff($oldrev, $newrev));
       print "<hr/>";
@@ -1518,21 +1562,21 @@ sub DoDelete {
     return;
   }
   # Does page exist?
-  if(!PageExists($ShortPage)) {
+  if(!PageExists($Page)) {
     print "That page doesn't exist!";
     return;
   }
   if($ArgList eq "confirm=yes") {
     # Delete the page
     print "<p>Removing page... ";
-    if(unlink "$PageDir/$ShortPage") {
+    if(unlink "$PageDir/$Page") {
       print "Done!</p>";
     } else {
       print "Error: $!</p>";
     }
     # Delete revisions
     print "<p>Removing any archived versions... ";
-    my @arvers = glob("$ArchiveDir/$ShortDir/$ShortPage.*");
+    my @arvers = glob("$ArchiveDir/$ShortDir/$Page.*");
     if(@arvers) {
       print "<br/>Found " . scalar @arvers . " revisions, removing... ";
       foreach (@arvers) {
@@ -1546,21 +1590,41 @@ sub DoDelete {
     DoAdminReIndex();
     print "</p>";
     # Remove entries from rc.log
-    print "<p>Removing any instances of $ShortPage from rc.log... ";
+    print "<p>Removing any instances of $Page from rc.log... ";
     chomp(my @rclines = FileToArray($RecentChangesLog));
-    my @newrc = grep(!/^\d{14}\t$ShortPage\t.*$/, @rclines);
+    my @newrc = grep(!/^\d{14}\t$Page\t.*$/, @rclines);
     my $rcout = join("\n",@newrc) . "\n";
     if(@newrc != @rclines) {      # Only write out if there's a difference!
       StringToFile($rcout, $RecentChangesLog);
     }
     print "Done.</p>";
-    print "<p><strong>Page $ShortPage successfully deleted!</strong></p>";
+    print "<p><strong>Page $Page successfully deleted!</strong></p>";
   } else {
     # Do we want to delete it?
     print "<p>Are you sure you want to delete the page <strong>&quot;".
-      "$ShortPage&quot;</strong>? This cannot be undone!</p>";
-    print "<p><a href='$ShortUrl?do=delete;page=$ShortPage;confirm=yes'>YES</a>";
+      "$Page&quot;</strong>? This cannot be undone!</p>";
+    print "<p><a href='$ShortUrl?do=delete;page=$Page;confirm=yes'>YES</a>";
     print "&nbsp;&nbsp; <a href='javascript:history.go(-1)'>NO</a></p>";
+  }
+}
+
+sub DoRevision {
+  if($ArgList =~ m/rev=(\d{1,})$/) {
+    $PageRevision = $1;
+    if(-f "$ArchiveDir/$ShortDir/$Page.$PageRevision") {
+      my %Filec = GetFile("$ArchiveDir/$ShortDir/$Page.$PageRevision");
+      print "<h1>Revision $Filec{revision}</h1>\n<a href=\"".
+        "$ShortUrl$Page\">view current</a><hr/>\n";
+      if(exists &Markup) {
+        print Markup($Filec{text});
+      } else {
+        print join("\n", $Filec{text});
+      }
+    } else {
+      print "That revision does not exist!";
+    }
+  } else {
+    print "What are you trying to do?";
   }
 }
 
@@ -1596,6 +1660,17 @@ sub DoRequest {
     $HTTPStatus = "Status: 404 Not Found\n";
   }
 
+  # Check if we're looking for a revision, and see if it exists...
+  # Unfortunately this is the best place to check, but I still don't like it.
+  if($command eq 'revision') {
+    if($ArgList =~ m/rev=(\d{1,})$/) {
+      my $rev = $1;
+      if(! -f "$ArchiveDir/$ShortDir/$Page.$rev") {
+	$HTTPStatus = "Status: 404 Not Found\n";
+      }
+    }
+  }
+
   # HTTP Header
   print $HTTPStatus . "Content-type: text/html\n\n";
 
@@ -1608,27 +1683,16 @@ sub DoRequest {
     if(! -f "$PageDir/$Page") {		# Doesn't exist!
       print $NewPage;
     } else {
-      if($PageRevision) {	# We're doing a previous page...
-        #my $shortdir = substr($Page,0,1);   # Get first letter
-        #$shortdir =~ tr/[a-z]/[A-Z]/;       # Capital
-	#my @rc = (glob("$ArchiveDir/$shortdir/$Page.*"));
-	#@rc = reverse(@rc);
-	#print "<h1>Revision $PageRevision</h1>\n<a href=\"".
-        #"$ShortUrl$ShortPage\">view current</a><hr/>\n";
-        #my $ptg = $rc[$PageRevision-1];
-	#$ptg =~ s#^$ArchiveDir/$shortdir/##;
-	#%Filec = GetFile("$ArchiveDir/$shortdir", $ptg);
-	%Filec = GetFile("$ArchiveDir/$ShortDir/$ShortPage.$PageRevision");
-	print "<h1>Revision $Filec{revision}</h1>\n<a href=\"".
-	"$ShortUrl$ShortPage\">view current</a><hr/>\n";
-	if(exists &Markup) {
-	  #print join("\n", Markup(GetFile("$ArchiveDir/$shortdir", $ptg)));
-	  print Markup($Filec{text});
-	} else {
-	  #print join("\n", GetFile("$ArchiveDir/$shortdir", $ptg));
-	  print join("\n", $Filec{text});
-	}
-      } else {
+      #if($PageRevision) {	# We're doing a previous page...
+	#%Filec = GetFile("$ArchiveDir/$ShortDir/$ShortPage.$PageRevision");
+	#print "<h1>Revision $Filec{revision}</h1>\n<a href=\"".
+	#"$ShortUrl$ShortPage\">view current</a><hr/>\n";
+	#if(exists &Markup) {
+	#  print Markup($Filec{text});
+	#} else {
+	#  print join("\n", $Filec{text});
+	#}
+      #} else {
 	%Filec = GetFile("$PageDir/$Page");
         if(exists &Markup) {	# If there's markup defined, do markup
           #print join("\n", Markup(GetFile($PageDir, $Page)));
@@ -1637,17 +1701,17 @@ sub DoRequest {
           #print join("\n", GetFile($PageDir, $Page));
 	  print join("\n", $Filec{text});
         }
-      }
+      #}
     }
     #if($MTime) {
     if($Filec{ts}) {
       $MTime = "Last modified: ".(FriendlyTime($Filec{ts}))[$TimeZone]." by ".
 	$Filec{author} . "<br/>";
     }
-    if($ShortPage eq 'RecentChanges') {
+    if($Page eq 'RecentChanges') {
       DoRecentChanges();
     }
-    if($ShortPage =~ m/^$DiscussPrefix/ and ($SiteMode < 2 or IsAdmin())) {
+    if($Page =~ m/^$DiscussPrefix/ and ($SiteMode < 2 or IsAdmin())) {
       print DoDiscuss();
     }
   }
@@ -1672,7 +1736,7 @@ __DATA__
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml"><head>
 <title>$PageName - $SiteName</title>
-<link rel="alternate" type="application/wiki" title="Edit this page" href="$Url?do=edit;page=$ShortPage" />
+<link rel="alternate" type="application/wiki" title="Edit this page" href="$Url?do=edit;page=$Page" />
 <meta name="robots" content="INDEX,FOLLOW" />
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
 <meta name="generator" content="Aneuch $VERSION" />
@@ -1815,7 +1879,7 @@ pre { border:0; font-size:10pt; }
 <body>
 <div class="header">
 <span class="navbar">$NavBar</span>
-<h1><a title="Search for references to $ShortPage" rel="nofollow" href="$ShortUrl?do=search;page=$ShortPage">$PageName</a></h1></div>
+<h1><a title="Search for references to $Page" rel="nofollow" href="$ShortUrl?do=search;page=$Page">$PageName</a></h1></div>
 <div class="wrapper">
 !!CONTENT!!
 </div>
@@ -1826,7 +1890,7 @@ pre { border:0; font-size:10pt; }
 $EditText
 $RevisionsText
 <a title="Administration options" rel="nofollow" href="$ShortUrl?do=admin;page=admin">Admin</a>
-<a title="Random page" rel="nofollow" href="$ShortUrl?do=random;page=$ShortPage">Random Page</a></span><span style="float:right;font-size:0.9em;"><strong>$SiteName</strong>
+<a title="Random page" rel="nofollow" href="$ShortUrl?do=random;page=$Page">Random Page</a></span><span style="float:right;font-size:0.9em;"><strong>$SiteName</strong>
 is powered by <em>Aneuch</em>.</span><br/>
 <span class="mtime">$MTime</span><br/>
 $PostFooter
