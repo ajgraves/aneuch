@@ -42,7 +42,7 @@ $NavBar $ConfFile $UserIP $UserName $VisitorLog $LockExpire %Filec $MTime
 $RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog
 %Commands %AdminActions %AdminList $RemoveOldTemp $ArgList $ShortDir
 @NavBarPages $BlockedList %PostingActions $HTTPStatus $PurgeRC %MaintActions
-$PurgeArchives);
+$PurgeArchives $SearchPage);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
@@ -92,10 +92,19 @@ sub InitVars {
 
   # Get page name that is being requested
   $Page = $ENV{'QUERY_STRING'};	# Should be the page
-  $Page =~ s/%([a-fA-F0-9][a-fA-F0-9])/pack("C", hex($1))/eg;	# Get "plain"
+  #$Page =~ s/%([a-fA-F0-9][a-fA-F0-9])/pack("C", hex($1))/eg;	# Get "plain"
   $Page =~ s/&/;/g;		# Replace ampersand with semicolon
+  # If there is a space in the page name, and it's not part of a command,
+  #  we're going to convert all the spaces to underscores and re-direct.
+  if(($Page =~ m/.*\s.*/ or $Page =~ m/^\s.*/) and !$Page =~ m/^?/) {
+    $Page =~ s/ /_/g;             # Convert spaces to underscore
+    ReDirect($Url.$Page);
+    exit 0;
+  }
   $Page =~ s/\+/ /g;		# Replace + with space...
+  $Page =~ s/%([a-fA-F0-9][a-fA-F0-9])/pack("C", hex($1))/eg;   # Get "plain"
   $Page =~ s!^/!!;		# Remove leading slash, if it exists
+  $Page =~ s!\.{2,}!!g;         # Remove every instance of double period
   # Wait! If there's a trailing slash, let's remove and redirect...
   if($Page =~ m!/$!) {
     $Page =~ s!/$!!;		# Remove the trailing slash
@@ -104,8 +113,6 @@ sub InitVars {
     ReDirect($Url.$Page);	# Redirect to the page sans trailing slash
     exit 0;
   }
-  $Page =~ s/ /_/g;		# Convert spaces to underscore
-  $Page =~ s!\.{2,}!!g;		# Remove every instance of double period
   if($Page =~ m/^?do=(.*?)(;page=(.*)|)$/) { # We're getting a command directive
     $command = $1;		# Set the command
     $Page = $3; #if $2;		# Set the page
@@ -170,7 +177,8 @@ sub InitVars {
   if($command) {
   #  $PageName = $commandtitle{$command};
     if($command eq 'search') { 
-      $ArgList = $PageName;
+      #$ArgList = $PageName;
+      $ArgList = $Page;
       $PageName = "Search for: $PageName";
      }
   }
@@ -570,7 +578,7 @@ sub DoEdit {
   } else {
     #$contents = join("", &GetFile($PageDir, $Page));
     my %f = GetFile("$PageDir/$Page");
-    $contents = $f{text};
+    chomp($contents = $f{text});
     $revision = $f{revision} if defined $f{revision};
     $revision = 0 unless $revision;
   }
@@ -679,6 +687,8 @@ sub WriteFile {
   if(-f "$TempDir/$file.$UserName") {	# Remove preview files
     unlink "$TempDir/$file.$UserName";
   }
+  chomp($content);
+  $content .= "\n";
   DoArchive($file);
   $content =~ s/\r//g;
   StringToFile($content, "$TempDir/new");
@@ -1101,6 +1111,9 @@ sub DoSearch {
   }
   # Now sort them by value...
   my @keys = sort {length $result{$b} <=> length $result{$a}} keys %result;
+  if(scalar @keys == 0) {
+    print "Nothing found!";
+  }
   foreach my $key (@keys) {
     print "<a href='$ShortUrl$key'>$key</a><br/>".
       $result{$key}."<br/><br/>";
@@ -1110,7 +1123,7 @@ sub DoSearch {
 
 sub SearchForm {
   my $ret;
-  $ret = "<form action='$ScriptName' method='get'>";
+  $ret = "<form enctype=\"multipart/form-data\" action='$ScriptName' method='get'>";
   $ret .= "<input type='hidden' name='do' value='search' />";
   $ret .= "<input type='text' name='page' size='40' />";
   $ret .= " <input type='submit' value='Search' /></form>";
@@ -1318,7 +1331,8 @@ sub DoPosting {
 
 sub DoVisit {
   # Log a visit to the visitor log
-  my $logentry = "$UserIP\t$TimeStamp\t$Page";
+  my $mypage = $Page; $mypage =~ s/ /+/g;
+  my $logentry = "$UserIP\t$TimeStamp\t$mypage";
   #if($PageRevision) { $logentry .= ".$PageRevision"; }
   if($PageRevision) { $command .= "$PageRevision"; }
   if($command) { $logentry .= " ($command)"; }
@@ -1551,7 +1565,9 @@ sub PageExists {
   my $pagename = shift;
   if(-f "$PageDir/$pagename") {
     return 1;
-  } else { return 0; }
+  } else {
+    return 0;
+  }
 }
 
 sub DoDelete {
@@ -1670,6 +1686,16 @@ sub DoRequest {
       }
     }
   }
+
+  # Build $SearchPage
+  if(PageExists($Page)) {
+    $SearchPage = $Page;
+  } else {
+    $SearchPage = $PageName;    # SearchPage is PageName with + for spaces
+    $SearchPage =~ s/Search for: //;
+    $SearchPage =~ s/ /+/g;     # Change spaces to +
+  }
+
 
   # HTTP Header
   print $HTTPStatus . "Content-type: text/html\n\n";
@@ -1879,7 +1905,7 @@ pre { border:0; font-size:10pt; }
 <body>
 <div class="header">
 <span class="navbar">$NavBar</span>
-<h1><a title="Search for references to $Page" rel="nofollow" href="$ShortUrl?do=search;page=$Page">$PageName</a></h1></div>
+<h1><a title="Search for references to $Page" rel="nofollow" href="$ShortUrl?do=search;page=$SearchPage">$PageName</a></h1></div>
 <div class="wrapper">
 !!CONTENT!!
 </div>
