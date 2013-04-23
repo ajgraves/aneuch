@@ -832,7 +832,8 @@ sub DoAdminClearVisits {
 sub DoAdminListVisitors {
   my $lim;
   # If we're getting 'limit='... (to limit by IP)
-  if($ArgList and $ArgList =~ m/^limit=(\d+\.\d+\.\d+\.\d+)$/) {
+  if($ArgList and $ArgList =~ m/^limit=(.*)$/) {
+    #m/^limit=(\d+\.\d+\.\d+\.\d+)$/) {
     $lim = $1;
     print "Limiting by '$lim', <a href='$ShortUrl?do=admin;page=visitors'>".
       "remove limit</a>"
@@ -881,6 +882,8 @@ sub DoAdminListVisitors {
         print " was viewing revision <strong>$1</strong> of page <strong>".
 	  QuoteHTML($p[0])."</strong>";
 	if($p[2]) { print " (error $p[2])"; }
+      } elsif($p[1] eq "revert") {
+	print " was reverting the page <strong>".QuoteHTML($p[0])."</strong>";
       } else {
 	my $tv = $p[1];
 	$tv =~ s/\(//;
