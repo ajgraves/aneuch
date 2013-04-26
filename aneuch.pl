@@ -190,12 +190,19 @@ sub InitVars {
   if(!$UserName) { $UserName = $UserIP; }
 
   # Navbar
-  $NavBar = "<a href='$Url$DefaultPage' title='$DefaultPage'>$DefaultPage</a> ".
-    "<a href='".$ShortUrl."RecentChanges' title='RecentChanges'>".
-    "RecentChanges</a> ".$NavBar;
+  #$NavBar = "<a href='$Url$DefaultPage' title='$DefaultPage'>$DefaultPage</a> ".
+  #  "<a href='".$ShortUrl."RecentChanges' title='RecentChanges'>".
+  #  "RecentChanges</a> ".$NavBar;
+  #foreach (@NavBarPages) {
+  #  $NavBar .= '<a href="'.$ShortUrl.$_.'" title="'.$_.'">'.$_.'</a> ';
+  #}
+  $NavBar = "<ul id=\"navbar\"><li><a href='$Url$DefaultPage' ".
+    "title='$DefaultPage'>$DefaultPage</a></li><li><a href='".$ShortUrl.
+    "RecentChanges' title='RecentChanges'>RecentChanges</a></li>".$NavBar;
   foreach (@NavBarPages) {
-    $NavBar .= '<a href="'.$ShortUrl.$_.'" title="'.$_.'">'.$_.'</a> ';
+    $NavBar .= '<li><a href="'.$ShortUrl.$_.'" title="'.$_.'">'.$_.'</a></li>';
   }
+  $NavBar .= "</ul>";
 
   # Search box
   $SearchBox = SearchForm() unless $SearchBox;  # Search box code
@@ -1787,7 +1794,19 @@ textarea {
 }
 
 .navbar a {
+  /*padding-right: 1ex;*/
+}
+
+.navbar ul {
+  padding: 0;
+  margin: 0;
+}
+
+.navbar li {
+  display: inline;
+  list-style-type: none;
   padding-right: 1ex;
+  margin: 0;
 }
 
 .mtime {
