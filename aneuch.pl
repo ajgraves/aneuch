@@ -46,7 +46,7 @@ my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
 
-$VERSION = '0.21';	# Set version number
+$VERSION = '0.22';	# Set version number
 
 # Subs
 sub InitConfig  {
@@ -1451,7 +1451,7 @@ sub GetDiff {
   my ($old, $new) = @_;
   my %OldFile = GetFile("$ArchiveDir/$ShortDir/$old");
   my %NewFile;
-  if($new =~ m/\.\d+$/) {
+  if(($new =~ m/\.\d+$/) and (-f "$ArchiveDir/$ShortDir/$new")) {
     %NewFile = GetFile("$ArchiveDir/$ShortDir/$new");
   } else {
     %NewFile = GetFile("$PageDir/$ShortDir/$new");
@@ -1527,7 +1527,7 @@ sub DoDiff {
 	(defined $rv{v2} ? $rv{v2} : "current") . "</p>";
       print HTMLDiff(GetDiff($oldrev, $newrev));
       print "<hr/>";
-      if($newrev =~ m/\.\d+$/) {
+      if(($newrev =~ m/\.\d+$/) and (-f "$ArchiveDir/$ShortDir/$newrev")) {
 	%F = GetFile("$ArchiveDir/$ShortDir/$newrev");
       } else {
 	%F = GetFile("$PageDir/$ShortDir/$newrev");
