@@ -138,6 +138,14 @@ $PurgeArchives = -1;
 #  The default value is blank, and is considered a sane default.
 $PostFooter = '';
 
+# $FancyUrls - This variable sets whether or not Aneuch will use 'fancy urls'
+#  in conjunction with .htaccess. If this is false (0), the URLs will show
+#  /aneuch.pl?Page (or whatever your script name is), if set to true (1) it
+#  would be /Page. The default is 1, and is considered sane assuming you
+#  have .htaccess configured (see htaccess.dist). Set it to 0 if you do not
+#  wish to use .htaccess or prefer to use the scriptname?Page method.
+$FancyUrls = 1;
+
 # $Header and $Footer - These variables are used in "theming" your site. If
 #  either one is blank, the default theme will be used. You can either fill
 #  the variables with content, or import the contents of a file into each.

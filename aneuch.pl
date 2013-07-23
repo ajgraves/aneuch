@@ -1,5 +1,4 @@
 #!/usr/bin/perl
-## $Id$
 ## **********************************************************************
 ## Copyright (c) 2012-2013, Aaron J. Graves (cajunman4life@gmail.com)
 ## All rights reserved.
@@ -42,12 +41,12 @@ $NavBar $ConfFile $UserIP $UserName $VisitorLog $LockExpire %Filec $MTime
 $RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog
 %Commands %AdminActions %AdminList $RemoveOldTemp $ArgList $ShortDir
 @NavBarPages $BlockedList %PostingActions $HTTPStatus $PurgeRC %MaintActions
-$PurgeArchives $SearchPage $SearchBox $TemplateDir $Template);
+$PurgeArchives $SearchPage $SearchBox $TemplateDir $Template $FancyUrls);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
 
-$VERSION = '0.20';	# Set version number
+$VERSION = '0.21';	# Set version number
 
 # Subs
 sub InitConfig  {
@@ -60,7 +59,11 @@ sub InitConfig  {
 sub InitScript {
   # Figure out the script name, URL, etc.
   $ShortUrl = $ENV{'SCRIPT_NAME'};
-  $ShortUrl =~ s/$0//;
+  #if($ENV{'REQUEST_URI'} !~ m/$0/) {
+  #  $ShortUrl =~ s/$0//;
+  #} else {
+  #  $ShortUrl =~ s/$0/$0\?/;
+  #}
   $Url = $srvr{$ENV{'SERVER_PORT'}} . $ENV{'HTTP_HOST'} . $ShortUrl;
   $ScriptName = $ENV{'SCRIPT_NAME'};
   $ShortScriptName = $0;
@@ -86,6 +89,16 @@ sub InitVars {
   $PurgeRC = 60*60*24*7 unless $PurgeRC;	# > 7 days
   $PurgeArchives = -1 unless $PurgeArchives;	# Default to keep all!
   $Template = "" unless $Template;		# No theme by default
+  $FancyUrls = 1 unless defined $FancyUrls;	# Use fancy urls w/.htaccess
+
+  # If $FancyUrls, remove $ShortScriptName from $ShortUrl
+  if(($FancyUrls) and ($ShortUrl =~ m/$ShortScriptName/)) {
+    $ShortUrl =~ s/$ShortScriptName//;
+    $Url =~ s/$ShortScriptName//;
+  } else {
+    $ShortUrl .= "?";
+    $Url .= "?";
+  }
 
   # Some cleanup
   #  Remove trailing slash from $DataDir, if it exists
@@ -125,7 +138,11 @@ sub InitVars {
     }
     $command =~ s/^\?//;	# Get rid of leading '?', if it's there.
   }
-  if($Page eq "") { $Page = $DefaultPage };	# Default if blank
+  if($Page eq "") { 
+    $Page = $DefaultPage;	# Default if blank
+    #ReDirect($Url.$DefaultPage);
+    #exit 0;    
+  }
   $PageName = $Page;		# PageName is ShortPage with spaces
   $PageName =~ s/_/ /g;		# Change underscore to space
 
@@ -159,14 +176,18 @@ sub InitVars {
     }
     if(CanEdit()) {
       $EditText = '<a title="Click to edit this page" rel="nofollow" href="'.
-	$ShortUrl.'?do=edit;page='.$Page.'">Edit '.$Page.'</a>';
+	$ShortUrl;
+      if($ShortUrl !~ m/\?$/) { $EditText .= "?"; }
+      $EditText .= 'do=edit;page='.$Page.'">Edit Page</a>';
     } else {
-      $EditText = '<a title="Read only page" rel="nofollow" href="'.$ShortUrl.
-	'?do=edit;page='.$Page.'">This page is read only</a>';
+      $EditText = '<a title="Read only page" rel="nofollow" href="'.$ShortUrl;
+      if($ShortUrl !~ m/\?$/) { $EditText .= "?"; }
+      $EditText .= 'do=edit;page='.$Page.'">Read Only</a>';
     }
     $RevisionsText = '<a title="Click here to see revision history" '.
-      'rel="nofollow" href="'.$ShortUrl.'?do=history;page='.$Page.
-      '">View page history</a>';
+      'rel="nofollow" href="'.$ShortUrl;
+    if($ShortUrl !~ m/\?$/) { $RevisionsText .= "?"; }
+    $RevisionsText .= 'do=history;page='.$Page.'">View page history</a>';
   }
 
   # If we're a command, change the page title
@@ -196,10 +217,11 @@ sub InitVars {
   #foreach (@NavBarPages) {
   #  $NavBar .= '<a href="'.$ShortUrl.$_.'" title="'.$_.'">'.$_.'</a> ';
   #}
-  $NavBar = "<ul id=\"navbar\"><li><a href='$Url$DefaultPage' ".
+  $NavBar = "<ul id=\"navbar\"><li><a href='$ShortUrl$DefaultPage' ".
     "title='$DefaultPage'>$DefaultPage</a></li><li><a href='".$ShortUrl.
     "RecentChanges' title='RecentChanges'>RecentChanges</a></li>".$NavBar;
   foreach (@NavBarPages) {
+    $_ =~ s/ /_/g;
     $NavBar .= '<li><a href="'.$ShortUrl.$_.'" title="'.$_.'">'.$_.'</a></li>';
   }
   $NavBar .= "</ul>";
@@ -273,7 +295,8 @@ sub Markup {
   my $ulistlevel = 0;		# List levels
   my $olistlevel = 0;
   my @build;			# What will be returned
-  foreach my $line (@contents) {
+  my $line;			# Line-by-line
+  foreach $line (@contents) {
     # Are we doing lists?
     # UL
     if($line =~ m/^[\s\t]*(\*{1,})[ \t]/) {
@@ -321,8 +344,8 @@ sub Markup {
     # Links
     $line =~ s#\[{2}(htt(p|ps)://.*?)\|(.*?)\]{2}#<a href="$1" class="external" target="_blank" title="External link: $1" rel="nofollow">$3</a>#g;
     $line =~ s#\[{2}(htt(p|ps)://.*?)\]{2}#<a href="$1" class="external" target="_blank" title="External link: $1" rel="nofollow">$1</a>#g;
-    $line =~ s#\[{2}(.*?)\|{1}(.*?)\]{2}#<a href="$1" title="$1">$2</a>#g;
-    $line =~ s#\[{2}(.*?)\]{2}#<a href="$1" title="$1">$1</a>#g;
+    $line =~ s#\[{2}(.*?)\|{1}(.*?)\]{2}#"<a href='".$ShortUrl.ReplaceSpaces($1)."' title='$1'>$2</a>"#eg;
+    $line =~ s#\[{2}(.*?)\]{2}#"<a href='".$ShortUrl.ReplaceSpaces($1)."' title='$1'>$1</a>"#eg;
 
     # HR
     $line =~ s#^-{4,}$#<hr/>#;
@@ -394,8 +417,19 @@ sub Markup {
   }
   if($openp) { $build[$#build] .= "</p>"; }
 
+  # Build output
+  my $returnout = join("\n",@build);
+
+  # Fix spaces in links!
+  #if($returnout =~ m/(<a href="(\s+)"(.*?)>)/) {
+  #  $line = $2;
+  #  $line =~ s/\s+/_/g;
+  #  $returnout =~ s/$1/<a href="$line"$3>/g;
+  #}
+  #$returnout =~ s/<a href="(.+?)"(.*?)>/"<a href=\"".ReplaceSpaces($1)."\"$2>"/eg;
+
   # Output
-  return "<!-- start of Aneuch markup -->\n".join("\n",@build)."\n<!-- end of Aneuch markup -->\n";
+  return "<!-- start of Aneuch markup -->\n".$returnout."\n<!-- end of Aneuch markup -->\n";
 }
 
 sub Trim {
@@ -493,7 +527,9 @@ sub SetCookie {
     $cookie .= ':' . $pass;
   }
   my $futime = gmtime($TimeStamp + 31556926)." GMT";	# Now + 1 year
-  print "Set-cookie: $CookieName=$cookie; path=$ShortUrl; expires=$futime;\n";
+  my $cookiepath = $ShortUrl;
+  $cookiepath =~ s/$ShortScriptName\?//;
+  print "Set-cookie: $CookieName=$cookie; path=$cookiepath; expires=$futime;\n";
 }
 
 sub IsAdmin {
@@ -586,7 +622,7 @@ sub DoEdit {
     $revision = 0 unless $revision;
   }
   if($canedit) {
-    print '<form action="' . $ShortUrl . $ShortScriptName . '" method="post">';
+    print '<form action="' . $ScriptName . '" method="post">';
     print '<input type="hidden" name="doing" value="editing">';
     print '<input type="hidden" name="file" value="' . $Page . '">';
     print '<input type="hidden" name="revision" value="'. $revision . '">';
@@ -772,7 +808,7 @@ sub ListAllPages {
 
 sub AdminForm {
   my ($u,$p) = ReadCookie();
-  print '<form action="' . $ShortUrl . $ShortScriptName . '" method="post">';
+  print '<form action="' . $ScriptName . '" method="post">';
   print '<input type="hidden" name="doing" value="login" />';
   print 'User: <input type="text" maxlength="30" size="8" name="user" value="'.
   $u.'" />';
@@ -935,7 +971,7 @@ sub DoAdminBlock {
   my @bl = split(/\n/,$blocked);
   print scalar @bl." user(s) blocked. Add an IP address, one per line, that ".
     "you wish to block.<br/>";
-  print "<form action='$ShortUrl$ShortScriptName' method='post'>".
+  print "<form action='$ScriptName' method='post'>".
     "<input type='hidden' name='doing' value='blocklist' />".
     "<textarea name='blocklist' rows='25' cols='100'>".$blocked.
     "</textarea><input type='submit' value='Save' /></form>";
@@ -995,7 +1031,7 @@ sub DoDiscuss {
   if(!CanDiscuss()) {
     return @returndiscuss;
   }
-  push @returndiscuss, "<form action='$ShortUrl$ShortScriptName' method='post'>";
+  push @returndiscuss, "<form action='$ScriptName' method='post'>";
   push @returndiscuss, "<input type='hidden' name='doing' value='discuss' />";
   push @returndiscuss, "<input type='hidden' name='file' value='$Page' />";
   push @returndiscuss, "<textarea name='text' cols='80' rows='5'>$NewComment</textarea>";
@@ -1514,7 +1550,7 @@ sub DoRandom {
   }
   my $randompage = int(rand($count));
   print '<script language="javascript" type="text/javascript">'.
-    'window.location.href="'.$files[$randompage].'"; </script>';
+    'window.location.href="'.$ShortUrl.$files[$randompage].'"; </script>';
 }
 
 sub PageExists {
@@ -1632,6 +1668,12 @@ sub IsBlocked {
   } else {
     return 0;
   }
+}
+
+sub ReplaceSpaces {
+  my $replacetext = shift;
+  $replacetext =~ s/\s/_/g;
+  return $replacetext;
 }
 
 sub DoRequest {
@@ -1794,7 +1836,7 @@ textarea {
 }
 
 .navbar a {
-  /*padding-right: 1ex;*/
+  padding-right: 1ex;
 }
 
 .navbar ul {
