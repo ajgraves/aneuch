@@ -46,7 +46,7 @@ my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
 
-$VERSION = '0.22';	# Set version number
+$VERSION = '0.30';	# Set version number
 
 # Subs
 sub InitConfig  {
@@ -235,7 +235,8 @@ sub InitVars {
     search => \&DoSearch,	history => \&DoHistory,
     random => \&DoRandom,	diff => \&DoDiff,
     delete => \&DoDelete,	revision => \&DoRevision,
-    revert => \&DoRevert,
+    revert => \&DoRevert,	spam => \&DoSpam,
+    recentchanges => \&DoRecentChanges,
   );
   %AdminActions = (		# List of admin actions, and their subs
     password => \&DoAdminPassword,	version => \&DoAdminVersion,
@@ -259,6 +260,7 @@ sub InitVars {
   %PostingActions = (
     login => \&DoPostingLogin,		editing => \&DoPostingEditing,
     discuss => \&DoPostingDiscuss,	blocklist => \&DoPostingBlockList,
+    commenting => \&DoPostingSpam,
   );
 
   # Maintenance actions
@@ -277,6 +279,31 @@ sub InitTemplate {
     $Header = FileToString("$TemplateDir/$Template/head.html");
     $Footer = FileToString("$TemplateDir/$Template/foot.html");
   }
+}
+
+sub MarkupBuildLink {
+  my $data = shift;
+  my $return;
+  my $href;
+  my $text;
+  if($data =~ m/^htt(p|ps):/) {	# External link!
+    if($data =~ m/\|/) {	# Seperate text
+      ($href,$text) = split(/\|/, $data);
+    } else {			# No seperate text
+      $href = $data; $text = $data;
+    }
+    $return = "<a class='external' rel='nofollow' title='External link: ".
+      $href."' target='_blank' href='".$href."'>".$text."</a>";
+  } else {			# Internal link!
+    if($data =~ m/\|/) {	# Seperate text
+      ($href, $text) = split(/\|/, $data);
+    } else {			# No seperate text
+      $href = $data; $text = $data;
+    }
+    $return = "<a title='".$href."' href='".$ShortUrl.ReplaceSpaces($href).
+      "'>".$text."</a>";
+  }
+  return $return;
 }
 
 sub Markup {
@@ -342,10 +369,11 @@ sub Markup {
     $line =~ s#^=(.*?)(=*)$#<h1>$1</h1>#;
 
     # Links
-    $line =~ s#\[{2}(htt(p|ps)://.*?)\|(.*?)\]{2}#<a href="$1" class="external" target="_blank" title="External link: $1" rel="nofollow">$3</a>#g;
-    $line =~ s#\[{2}(htt(p|ps)://.*?)\]{2}#<a href="$1" class="external" target="_blank" title="External link: $1" rel="nofollow">$1</a>#g;
-    $line =~ s#\[{2}(.*?)\|{1}(.*?)\]{2}#"<a href='".$ShortUrl.ReplaceSpaces($1)."' title='$1'>$2</a>"#eg;
-    $line =~ s#\[{2}(.*?)\]{2}#"<a href='".$ShortUrl.ReplaceSpaces($1)."' title='$1'>$1</a>"#eg;
+    #$line =~ s#\[{2}(htt(p|ps)://.*?)\|(.*?)\]{2}#<a href="$1" class="external" target="_blank" title="External link: $1" rel="nofollow">$3</a>#g;
+    #$line =~ s#\[{2}(htt(p|ps)://.*?)\]{2}#<a href="$1" class="external" target="_blank" title="External link: $1" rel="nofollow">$1</a>#g;
+    #$line =~ s#\[{2}(.*?)\|{1}(.*?)\]{2}#"<a href='".$ShortUrl.ReplaceSpaces($1)."' title='$1'>$2</a>"#eg;
+    #$line =~ s#\[{2}(.*?)\]{2}#"<a href='".$ShortUrl.ReplaceSpaces($1)."' title='$1'>$1</a>"#eg;
+    #$line =~ s#\[{2}(.+?)\]{2}#MarkupBuildLink($1)#eg;
 
     # HR
     $line =~ s#^-{4,}$#<hr/>#;
@@ -376,6 +404,9 @@ sub Markup {
     $line =~ s#\{{2}(left|right):(.*?)\}{2}#<img src="$2" align="$1" />#g;
     $line =~ s#\{{2}(.*?)\|(.*?)\}{2}#<img src="$1" alt="$2" />#g;
     $line =~ s#\{{2}(.*?)\}{2}#<img src="$1" />#g;
+
+    # Links
+    $line =~ s#\[{2}(.+?)\]{2}#MarkupBuildLink($1)#eg;
 
     # Fix for italics...
     $line =~ s#htt(p|ps)://#htt$1:~/~/#g;
@@ -622,6 +653,7 @@ sub DoEdit {
     $revision = 0 unless $revision;
   }
   if($canedit) {
+    print RedHerringForm();
     print '<form action="' . $ScriptName . '" method="post">';
     print '<input type="hidden" name="doing" value="editing">';
     print '<input type="hidden" name="file" value="' . $Page . '">';
@@ -806,6 +838,11 @@ sub ListAllPages {
   return @files;
 }
 
+sub CountAllRevisions {
+  my @files = (glob("$ArchiveDir/*/*"));
+  return scalar(@files);
+}
+
 sub AdminForm {
   my ($u,$p) = ReadCookie();
   print '<form action="' . $ScriptName . '" method="post">';
@@ -842,10 +879,11 @@ sub DoAdminIndex {
     'are inaccurate, please run the "Rebuild page index" task from the '.
     'Admin panel.</p>';
   print "<h3>" . @indx . " pages found.</h3><p>";
+  print "<ol>";
   foreach my $pg (@indx) {
-    print "<a href=\"$ShortUrl$pg\">$pg</a><br/>";
+    print "<li><a href=\"$ShortUrl$pg\">$pg</a></li>";
   }
-  print "</p>";
+  print "</ol></p>";
 }
 
 sub DoAdminReIndex {
@@ -927,6 +965,8 @@ sub DoAdminListVisitors {
 	if($p[2]) { print " (error $p[2])"; }
       } elsif($p[1] eq "revert") {
 	print " was reverting the page <strong>".QuoteHTML($p[0])."</strong>";
+      } elsif($p[1] eq "spam") {
+	print " was spamming the page <strong>".QuoteHTML($p[0])."</strong>";
       } else {
 	my $tv = $p[1];
 	$tv =~ s/\(//;
@@ -993,7 +1033,8 @@ sub DoAdmin {
       }
     }
     print '</ul></p>';
-    print '<p>This site has ' . scalar(ListAllPages()) . ' pages.</p>';
+    print '<p>This site has ' . scalar(ListAllPages()) . ' pages and '.
+      CountAllRevisions().' revisions.</p>';
   }
 }
 
@@ -1023,6 +1064,17 @@ sub Init {
   InitTemplate();
 }
 
+sub RedHerringForm {
+  # This sub will return the "red herring" or honeypot form. This is an
+  #  anti-spam measure.
+  return '<form action="'.$ScriptName.'" method="post" style="display:none;">'.
+    '<input type="hidden" name="doing" value="commenting" />'.
+    '<input type="hidden" name="file" value="'.$Page.'" />'.
+    '<input type="text" name="hname" width="12" />'.
+    '<textarea name="htext" cols="80" rows="5"></textarea>'.
+    '<input type="submit" value="Save" /></form>';
+}
+
 sub DoDiscuss {
   # So that plugins can modify the DoDiscuss action without having to totally
   # re-write it, the decision was made that instead of DoDiscuss printing
@@ -1031,6 +1083,7 @@ sub DoDiscuss {
   if(!CanDiscuss()) {
     return @returndiscuss;
   }
+  push @returndiscuss, RedHerringForm;
   push @returndiscuss, "<form action='$ScriptName' method='post'>";
   push @returndiscuss, "<input type='hidden' name='doing' value='discuss' />";
   push @returndiscuss, "<input type='hidden' name='file' value='$Page' />";
@@ -1271,6 +1324,14 @@ sub Preview {
 sub ReDirect {
   my $loc = shift;
   print "Location: $loc\n\n";
+}
+
+sub DoPostingSpam {
+  # Someone submitted the red herring form!
+  my $redir = $Url;
+  if($redir !~ m/\?$/) { $redir .= "?"; }
+  $redir .= "do=spam;page=".$FORM{'file'};
+  ReDirect($redir);
 }
 
 sub DoPostingLogin {
@@ -1660,6 +1721,12 @@ sub DoRevert {
   }
 }
 
+sub DoSpam {
+  # Someone posted spam, now tell them about it.
+  print "It appears that you are attempting to spam $Page. ".
+    "Please don't do that.";
+}
+
 sub IsBlocked {
   if(!-f $BlockedList) { return 0; }
   chomp(my @blocked = FileToArray($BlockedList));
@@ -1767,7 +1834,8 @@ DoMaint();	# Run maintenance commands
 
 __DATA__
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml"><head>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
+<head>
 <title>$PageName - $SiteName</title>
 <link rel="alternate" type="application/wiki" title="Edit this page" href="$Url?do=edit;page=$Page" />
 <meta name="robots" content="INDEX,FOLLOW" />
