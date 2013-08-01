@@ -96,9 +96,12 @@ sub InitVars {
   if(($FancyUrls) and ($ShortUrl =~ m/$ShortScriptName/)) {
     $ShortUrl =~ s/$ShortScriptName//;
     $Url =~ s/$ShortScriptName//;
+  #} elsif((defined $ENV{'PATH_INFO'})) { #and ($ENV{'PATH_INFO'} ne '/')) {
+  #  $ShortUrl .= "/";
+  #  $Url .= "/";
   } else {
-    $ShortUrl .= "?";
-    $Url .= "?";
+    $ShortUrl .= "/"; #"?";
+    $Url .= "/"; #"?";
   }
 
   # Some cleanup
@@ -109,7 +112,9 @@ sub InitVars {
   InitDirs();
 
   # Get page name that is being requested
-  $Page = $ENV{'QUERY_STRING'};	# Should be the page
+  $Page = ((defined $ENV{'PATH_INFO'}) and ($ENV{'QUERY_STRING'} eq '')) ? $ENV{'PATH_INFO'} : $ENV{'QUERY_STRING'};
+  #$Page = $ENV{'QUERY_STRING'};	# Should be the pagea
+  if($Page =~ m/^\//) { $Page =~ s!/!!; }
   $Page =~ s/&/;/g;		# Replace ampersand with semicolon
   # If there is a space in the page name, and it's not part of a command,
   #  we're going to convert all the spaces to underscores and re-direct.
@@ -305,8 +310,13 @@ sub MarkupBuildLink {
     } else {			# No seperate text
       $href = $data; $text = $data;
     }
-    $return = "<a title='".$href."' href='".$ShortUrl.ReplaceSpaces($href).
-      "'>".$text."</a>";
+    if((PageExists(ReplaceSpaces($href))) or ($href =~ m/^\?/) or (ReplaceSpaces($href) =~ m/^$DiscussPrefix/)) {
+      $return = "<a title='".$href."' href='".$ShortUrl.ReplaceSpaces($href).
+	"'>".$text."</a>";
+    } else {
+      $return = "[$text<a title='Create page ".$href."' href='".$ShortUrl.
+	"?do=edit;page=".ReplaceSpaces($href)."'>?</a>]";
+    }
   }
   return $return;
 }
@@ -1094,7 +1104,7 @@ sub DoDiscuss {
   push @returndiscuss, "<form action='$ScriptName' method='post'>";
   push @returndiscuss, "<input type='hidden' name='doing' value='discuss' />";
   push @returndiscuss, "<input type='hidden' name='file' value='$Page' />";
-  push @returndiscuss, "<textarea name='text' cols='80' rows='5'>$NewComment</textarea>";
+  push @returndiscuss, "<textarea name='text' cols='80' rows='10'>$NewComment</textarea>";
   push @returndiscuss, "Name: <input type='text' name='uname' width='12' value='$UserName' /> ";
   push @returndiscuss, "URL (optional): <input type='text' name='url' width='12' />";
   push @returndiscuss, "<input type='submit' value='Save' />";
