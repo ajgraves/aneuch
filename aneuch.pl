@@ -31,6 +31,7 @@ use strict;
 use POSIX qw(strftime);
 use Fcntl qw(:flock :seek); # import LOCK_* and SEEK_END constants
 #use CGI::Carp qw(fatalsToBrowser);
+local $| = 1;
 # Some variables
 use vars qw($DataDir $SiteName $Page $ShortPage @Passwords $PageDir $ArchiveDir
 $ShortUrl $SiteMode $ScriptName $ShortScriptName $Header $Footer $PluginDir 
@@ -104,6 +105,9 @@ sub InitVars {
   #  Remove trailing slash from $DataDir, if it exists
   $DataDir =~ s!/\z!!;
 
+  # Initialize Directories
+  InitDirs();
+
   # Get page name that is being requested
   $Page = $ENV{'QUERY_STRING'};	# Should be the page
   $Page =~ s/&/;/g;		# Replace ampersand with semicolon
@@ -163,7 +167,7 @@ sub InitVars {
       $DiscussLink = $ShortUrl . $DiscussPrefix . $Page;
       $DiscussText = $DiscussPrefix;
       $DiscussText =~ s/_/ /g;
-      $DiscussText .= $Page;
+      $DiscussText .= $Page . " (".DiscussCount().")";
       $DiscussText = '<a title="'.$DiscussText.'" href="'.$DiscussLink.'">'.
 	$DiscussText.'</a>';
     } else {
@@ -237,6 +241,7 @@ sub InitVars {
     delete => \&DoDelete,	revision => \&DoRevision,
     revert => \&DoRevert,	spam => \&DoSpam,
     recentchanges => \&DoRecentChanges,
+    index => \&DoAdminIndex,
   );
   %AdminActions = (		# List of admin actions, and their subs
     password => \&DoAdminPassword,	version => \&DoAdminVersion,
@@ -890,7 +895,7 @@ sub DoAdminReIndex {
   # Re-index the site
   my @files = ListAllPages();
   StringToFile(join("\n",@files)."\n","$DataDir/pageindex");
-  print "Reindex complete.";
+  print "Reindex complete, ".scalar(@files)." pages found and added to index.";
 }
 
 sub DoAdminRemoveLocks {
@@ -1059,7 +1064,7 @@ sub Init {
   InitScript();
   InitConfig();
   InitVars();
-  InitDirs();
+  #InitDirs();		# Now called inside InitVars();
   LoadPlugins();
   InitTemplate();
 }
@@ -1071,7 +1076,9 @@ sub RedHerringForm {
     '<input type="hidden" name="doing" value="commenting" />'.
     '<input type="hidden" name="file" value="'.$Page.'" />'.
     '<input type="text" name="hname" width="12" />'.
+    '<label for="hname">Name</label>'.
     '<textarea name="htext" cols="80" rows="5"></textarea>'.
+    '<label for="htext">Comment</label>'.
     '<input type="submit" value="Save" /></form>';
 }
 
@@ -1446,9 +1453,9 @@ sub DoMaintPurgeOldRevs {
   my @files = glob("$ArchiveDir/*/*.*");
   # Walk through each file and remove if it's older...
   foreach my $f (@files) {
-    #if((stat("$f"))[9] <= $RemoveTime) { unlink $f; }
-    my %fc = GetFile($f);
-    if($fc{ts} <= $RemoveTime) { unlink $f; }
+    if((stat("$f"))[9] <= $RemoveTime) { unlink $f; }
+    #my %fc = GetFile($f);
+    #if($fc{ts} <= $RemoveTime) { unlink $f; }
   }
 }
 
@@ -1620,6 +1627,18 @@ sub PageExists {
   my $archive = substr($pagename,0,1); $archive =~ tr/[a-z]/[A-Z]/;
   if(-f "$PageDir/$archive/$pagename") {
     return 1;
+  } else {
+    return 0;
+  }
+}
+
+sub DiscussCount {
+  # Returns the number of comments on a Discuss page
+  if(PageExists("${DiscussPrefix}${Page}")) {
+    my $DShortDir = substr($DiscussPrefix,0,1); $DShortDir =~ tr/[a-z]/[A-Z]/;
+    my %DiscussPage = GetFile("$PageDir/$DShortDir/${DiscussPrefix}${Page}");
+    my @comments = split("----", $DiscussPage{text});
+    return $#comments; #scalar(@comments);
   } else {
     return 0;
   }
@@ -1903,6 +1922,10 @@ textarea {
   width: 100%;
 }
 
+.navbar {
+  float: left;
+}
+
 .navbar a {
   padding-right: 1ex;
 }
@@ -1995,7 +2018,7 @@ pre { border:0; font-size:10pt; }
 </head>
 <body>
 <div class="header">
-<span class="navbar">$NavBar</span>
+<div class="navbar">$NavBar</div><br/>
 <h1><a title="Search for references to $Page" rel="nofollow" href="$ShortUrl?do=search;page=$SearchPage">$PageName</a></h1></div>
 <div class="wrapper">
 !!CONTENT!!
@@ -2003,11 +2026,11 @@ pre { border:0; font-size:10pt; }
 <div class="close"></div>
 <div class="footer">
 <hr/>
-<span class="navbar">$DiscussText
+<div class="navbar">$DiscussText
 $EditText
 $RevisionsText
 <a title="Administration options" rel="nofollow" href="$ShortUrl?do=admin;page=admin">Admin</a>
-<a title="Random page" rel="nofollow" href="$ShortUrl?do=random;page=$Page">Random Page</a></span><span style="float:right;font-size:0.9em;"><strong>$SiteName</strong>
+<a title="Random page" rel="nofollow" href="$ShortUrl?do=random;page=$Page">Random Page</a></div><span style="float:right;font-size:0.9em;"><strong>$SiteName</strong>
 is powered by <em>Aneuch</em>.</span><br/>
 <span class="mtime">$MTime</span><br/>
 $SearchBox
