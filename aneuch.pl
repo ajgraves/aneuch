@@ -42,7 +42,8 @@ $NavBar $ConfFile $UserIP $UserName $VisitorLog $LockExpire %Filec $MTime
 $RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog
 %Commands %AdminActions %AdminList $RemoveOldTemp $ArgList $ShortDir
 @NavBarPages $BlockedList %PostingActions $HTTPStatus $PurgeRC %MaintActions
-$PurgeArchives $SearchPage $SearchBox $TemplateDir $Template $FancyUrls);
+$PurgeArchives $SearchPage $SearchBox $TemplateDir $Template $FancyUrls
+%QuestionAnswer $BannedContent);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
@@ -91,6 +92,9 @@ sub InitVars {
   $PurgeArchives = -1 unless $PurgeArchives;	# Default to keep all!
   $Template = "" unless $Template;		# No theme by default
   $FancyUrls = 1 unless defined $FancyUrls;	# Use fancy urls w/.htaccess
+  # New page and new comment default text
+  $NewPage = 'It appears that there is nothing here.' unless $NewPage;
+  $NewComment = 'Add your comment here.' unless $NewComment;
 
   # If $FancyUrls, remove $ShortScriptName from $ShortUrl
   if(($FancyUrls) and ($ShortUrl =~ m/$ShortScriptName/)) {
@@ -166,23 +170,24 @@ sub InitVars {
     #$Page = '';
   }
 
-  # Discuss links
+  # Discuss, edit links
   if(!$command) { #or $command ne 'admin') {
-    if($Page !~ m/^$DiscussPrefix/) {
+    if($Page !~ m/^$DiscussPrefix/) {	# Not a discussion page
       $DiscussLink = $ShortUrl . $DiscussPrefix . $Page;
       $DiscussText = $DiscussPrefix;
       $DiscussText =~ s/_/ /g;
       $DiscussText .= $Page . " (".DiscussCount().")";
       $DiscussText = '<a title="'.$DiscussText.'" href="'.$DiscussLink.'">'.
 	$DiscussText.'</a>';
-    } else {
+    } else {				# Is a discussion page
       $DiscussLink = $Page;
-      $DiscussLink =~ s/^$DiscussPrefix//;
+      $DiscussLink =~ s/^$DiscussPrefix//;	# Strip discussion prefix
       $DiscussText = $DiscussLink;
       $DiscussLink = $ShortUrl . $DiscussLink;
       $DiscussText = '<a title="Return to '.$DiscussText.'" href="'.
 	$DiscussLink.'">'.$DiscussText.'</a>';
     }
+    # Edit link
     if(CanEdit()) {
       $EditText = '<a title="Click to edit this page" rel="nofollow" href="'.
 	$ShortUrl;
@@ -210,22 +215,12 @@ sub InitVars {
   # Set the TimeStamp
   $TimeStamp = time;
 
-  # New page and new comment default text
-  $NewPage = '<p>It appears that there is nothing here.</p>' unless $NewPage;
-  $NewComment = 'Add your comment here.' unless $NewComment;
-
   # Set visitor IP address
   $UserIP = $ENV{'REMOTE_ADDR'};
   ($UserName) = &ReadCookie;
   if(!$UserName) { $UserName = $UserIP; }
 
   # Navbar
-  #$NavBar = "<a href='$Url$DefaultPage' title='$DefaultPage'>$DefaultPage</a> ".
-  #  "<a href='".$ShortUrl."RecentChanges' title='RecentChanges'>".
-  #  "RecentChanges</a> ".$NavBar;
-  #foreach (@NavBarPages) {
-  #  $NavBar .= '<a href="'.$ShortUrl.$_.'" title="'.$_.'">'.$_.'</a> ';
-  #}
   $NavBar = "<ul id=\"navbar\"><li><a href='$ShortUrl$DefaultPage' ".
     "title='$DefaultPage'>$DefaultPage</a></li><li><a href='".$ShortUrl.
     "RecentChanges' title='RecentChanges'>RecentChanges</a></li>".$NavBar;
@@ -254,6 +249,7 @@ sub InitVars {
     rmlocks => \&DoAdminRemoveLocks,	visitors => \&DoAdminListVisitors,
     lock => \&DoAdminLock,		unlock => \&DoAdminUnlock,
     block => \&DoAdminBlock,		clearvisits => \&DoAdminClearVisits,
+    bannedcontent => \&DoAdminBannedContent,
   );
   %AdminList = (		# For the Admin menu
     version => 'View version information',
@@ -265,12 +261,13 @@ sub InitVars {
     lock => 'Lock the site for editing/discussions',
     unlock => 'Unlock the site',
     block => '(Un)Block users',
+    bannedcontent => 'Ban certain types of content',
   );
   # Posting actions
   %PostingActions = (
     login => \&DoPostingLogin,		editing => \&DoPostingEditing,
     discuss => \&DoPostingDiscuss,	blocklist => \&DoPostingBlockList,
-    commenting => \&DoPostingSpam,
+    commenting => \&DoPostingSpam,  bannedcontent => \&DoPostingBannedContent,
   );
 
   # Maintenance actions
@@ -281,7 +278,7 @@ sub InitVars {
 }
 
 sub InitTemplate {
-  # If we don't have $Header or $Footer, use the built-in
+  # If a template is not specified, use the built-in default
   if(!$Template or !-d "$TemplateDir/$Template") {
     chomp(my @TEMPLATE = <DATA>);	# Read from DATA
     ($Header, $Footer) = split(/!!CONTENT!!/, join("\n", @TEMPLATE));
@@ -292,6 +289,7 @@ sub InitTemplate {
 }
 
 sub MarkupBuildLink {
+  # This sub takes everything between [[ and ]] and builds a link out of it.
   my $data = shift;
   my $return;
   my $href;
@@ -466,14 +464,6 @@ sub Markup {
   # Build output
   my $returnout = join("\n",@build);
 
-  # Fix spaces in links!
-  #if($returnout =~ m/(<a href="(\s+)"(.*?)>)/) {
-  #  $line = $2;
-  #  $line =~ s/\s+/_/g;
-  #  $returnout =~ s/$1/<a href="$line"$3>/g;
-  #}
-  #$returnout =~ s/<a href="(.+?)"(.*?)>/"<a href=\"".ReplaceSpaces($1)."\"$2>"/eg;
-
   # Output
   return "<!-- start of Aneuch markup -->\n".$returnout."\n<!-- end of Aneuch markup -->\n";
 }
@@ -538,6 +528,7 @@ sub InitDirs {
   $VisitorLog = "$DataDir/visitors.log";
   $RecentChangesLog = "$DataDir/rc.log";
   $BlockedList = "$DataDir/banned";
+  $BannedContent = "$DataDir/bannedcontent";
 }
 
 sub LoadPlugins {
@@ -575,6 +566,7 @@ sub SetCookie {
   my $futime = gmtime($TimeStamp + 31556926)." GMT";	# Now + 1 year
   my $cookiepath = $ShortUrl;
   $cookiepath =~ s/$ShortScriptName\?//;
+  $cookiepath =~ s/$ShortScriptName\///;
   print "Set-cookie: $CookieName=$cookie; path=$cookiepath; expires=$futime;\n";
 }
 
@@ -668,7 +660,7 @@ sub DoEdit {
     $revision = 0 unless $revision;
   }
   if($canedit) {
-    print RedHerringForm();
+    RedHerringForm();
     print '<form action="' . $ScriptName . '" method="post">';
     print '<input type="hidden" name="doing" value="editing">';
     print '<input type="hidden" name="file" value="' . $Page . '">';
@@ -680,14 +672,16 @@ sub DoEdit {
   if(@preview) {
     print "<div class=\"preview\">" . Markup($contents) . "</div>";
   }
-  print '<textarea name="text" cols="100" rows="25">' . QuoteHTML($contents) . '</textarea>';
+  print '<textarea name="text" cols="100" rows="25">' . QuoteHTML($contents) . '</textarea><br/>';
   if($canedit) {
     # Set a lock
     if(@preview or SetLock()) {
-      print 'Summary: <input type="text" name="summary" size="60" />';
+      #print 'Summary: <input type="text" name="summary" size="60" />';
+      print 'Summary:<br/><textarea name="summary" cols="100" rows="2"></textarea><br/>';
       print ' User name: <input type="text" name="uname" size="12" value="'.$UserName.'" /> ';
-      print ' <a href="'.$ShortUrl.'?do=delete;page='.$Page.'">'.
+      print ' <a rel="nofollow" href="'.$ShortUrl.'?do=delete;page='.$Page.'">'.
 	'Delete Page</a> ';
+      AntiSpam();
       print '<input type="submit" name="whattodo" value="Save" /> ';
       print '<input type="submit" name="whattodo" value="Preview" /> ';
       print '<input type="submit" name="whattodo" value="Cancel" />';
@@ -697,6 +691,7 @@ sub DoEdit {
 }
 
 sub SetLock {
+  # Sets a page log
   if(-f "$TempDir/$Page.lock" and ((stat("$TempDir/$Page.lock"))[9] <= ($TimeStamp - $LockExpire))) {
     UnLock();
   }
@@ -725,6 +720,7 @@ sub SetLock {
 }
 
 sub UnLock {
+  # Removed a page lock
   my $pg = $Page;
   ($pg) = @_ if @_ >= 1;
   if(-f "$TempDir/$pg.lock") {
@@ -735,6 +731,8 @@ sub UnLock {
 }
 
 sub Index {
+  # Adds a page to the pageindex file.
+  #  FIXME: Replace all the open..close with FileToArray or similar
   my $pg = $Page;
   ($pg) = @_ if @_ >= 1;
   open(INDEX,"<$DataDir/pageindex") or push @Messages, "Index: Unable to open pageindex for read: $!";
@@ -805,10 +803,11 @@ sub AppendFile {
   DoArchive($file);				# Keep history
   my $sig;
   $content =~ s/\r//g;
-  $content =~ s/\n/\n\t/g;
+  #$content =~ s/\n/\n\t/g;
   if(!$user) { $user = $UserIP; }
   my %F; my %T;
   $F{summary} = $content;
+  $F{summary} =~ s/\n//g;
   $F{ip} = $UserIP;
   $F{author} = $user;
   $F{ts} = $TimeStamp;
@@ -854,11 +853,13 @@ sub ListAllPages {
 }
 
 sub CountAllRevisions {
+  # Counts the total number of revisions
   my @files = (glob("$ArchiveDir/*/*"));
   return scalar(@files);
 }
 
 sub AdminForm {
+  # Displays the admin login form
   my ($u,$p) = ReadCookie();
   print '<form action="' . $ScriptName . '" method="post">';
   print '<input type="hidden" name="doing" value="login" />';
@@ -887,6 +888,7 @@ sub DoAdminVersion {
 }
 
 sub DoAdminIndex {
+  # Shows the pageindex
   my @indx = FileToArray("$DataDir/pageindex");
   @indx = sort(@indx);
   #my @indx = sort(ListAllPages());
@@ -919,6 +921,7 @@ sub DoAdminRemoveLocks {
 }
 
 sub DoAdminClearVisits {
+  # Clears out $VisitorLog
   open(LOGFILE,">$VisitorLog") or push @Messages, "DoAdminClearVisits: Unable to open $VisitorLog: $!";
   print LOGFILE "";
   close(LOGFILE);
@@ -982,6 +985,8 @@ sub DoAdminListVisitors {
 	print " was reverting the page <strong>".QuoteHTML($p[0])."</strong>";
       } elsif($p[1] eq "spam") {
 	print " was spamming the page <strong>".QuoteHTML($p[0])."</strong>";
+      } elsif($p[1] eq "index") {
+	print " was viewing the page index";
       } else {
 	my $tv = $p[1];
 	$tv =~ s/\(//;
@@ -1028,7 +1033,21 @@ sub DoAdminBlock {
     "you wish to block.<br/>";
   print "<form action='$ScriptName' method='post'>".
     "<input type='hidden' name='doing' value='blocklist' />".
-    "<textarea name='blocklist' rows='25' cols='100'>".$blocked.
+    "<textarea name='blocklist' rows='30' cols='100'>".$blocked.
+    "</textarea><input type='submit' value='Save' /></form>";
+}
+
+sub DoAdminBannedContent {
+  my $content = FileToString($BannedContent);
+  print "<p>CAUTION! This is very powerful! If you're not careful, you can ".
+    "easily block all forms of editing on your site.</p>";
+  print "<p>Enter regular expressions for content you wish to ban. Any edit ".
+    "by a non-administrative user that matches this content will immediately ".
+    "be rejected as spam. Any line that begins with a '#' is considered ".
+    "a comment, and will be ignored by the parser.</p>";
+  print "<form action='$ScriptName' method='post'>".
+    "<input type='hidden' name='doing' value='bannedcontent' />".
+    "<textarea name='bannedcontent' rows='30' cols='100'>".$content.
     "</textarea><input type='submit' value='Save' /></form>";
 }
 
@@ -1080,36 +1099,95 @@ sub Init {
 }
 
 sub RedHerringForm {
-  # This sub will return the "red herring" or honeypot form. This is an
+  # This sub will print the "red herring" or honeypot form. This is an
   #  anti-spam measure.
-  return '<form action="'.$ScriptName.'" method="post" style="display:none;">'.
+  print '<form action="'.$ScriptName.'" method="post" style="display:none;">'.
     '<input type="hidden" name="doing" value="commenting" />'.
     '<input type="hidden" name="file" value="'.$Page.'" />'.
-    '<input type="text" name="hname" width="12" />'.
-    '<label for="hname">Name</label>'.
-    '<textarea name="htext" cols="80" rows="5"></textarea>'.
-    '<label for="htext">Comment</label>'.
+    'Name: <input type="text" name="hname" size="20" /><br/>'.
+    'Message:<br/><textarea name="htext" cols="80" rows="5"></textarea>'.
     '<input type="submit" value="Save" /></form>';
 }
 
-sub DoDiscuss {
-  # So that plugins can modify the DoDiscuss action without having to totally
-  # re-write it, the decision was made that instead of DoDiscuss printing
-  # output directly, it should return an array.
-  my @returndiscuss = ();
-  if(!CanDiscuss()) {
-    return @returndiscuss;
+sub AntiSpam {
+  # Provides several anti-spam features to forms
+
+  # If we're an admin user, we probably don't need this.
+  if(IsAdmin()) { return; }
+
+  # Let's do a hidden value, maybe?
+
+  # If the %QuestionAnswer hash is empty, forget about it.
+  if(!%QuestionAnswer) {	# Evaluates the hash in scalar context, returns
+    return;			#  0 if there are 0 elements, which with the
+  } else {			#  '!' used here, will match and exit.
+    my $question = (keys %QuestionAnswer)[rand keys %QuestionAnswer];
+    print '<input type="hidden" name="session" value="'. unpack("%32W*",$question) % 65535;
+    print '" />';
+    print "<br/>$question&nbsp;";
+    print '<input type="text" name="answer" size="30" /> ';
   }
-  push @returndiscuss, RedHerringForm;
-  push @returndiscuss, "<form action='$ScriptName' method='post'>";
-  push @returndiscuss, "<input type='hidden' name='doing' value='discuss' />";
-  push @returndiscuss, "<input type='hidden' name='file' value='$Page' />";
-  push @returndiscuss, "<textarea name='text' cols='80' rows='10'>$NewComment</textarea>";
-  push @returndiscuss, "Name: <input type='text' name='uname' width='12' value='$UserName' /> ";
-  push @returndiscuss, "URL (optional): <input type='text' name='url' width='12' />";
-  push @returndiscuss, "<input type='submit' value='Save' />";
-  push @returndiscuss, "</form>";
-  return @returndiscuss;
+}
+
+sub IsBannedContent {
+  # Checks the edit for banned content.
+  my @bc = FileToArray($BannedContent);
+  @bc = grep(!/^#/,@bc);	# Remove comments
+  @bc = grep(/\S/,@bc);	# Remove blanks
+  foreach my $c (@bc) {
+    if($FORM{'text'} =~ m/$c/i) {
+      #print STDERR "Matched rule: $c";
+      return 1;
+    }
+  }
+  return 0;
+}
+
+sub PassesSpamCheck {
+  # Checks to see if the form submitted passes all spam checks. Returns 1 if
+  #  passed, 0 otherwise.
+  if(IsAdmin()) { return 1; }	# If admin, assume passed.
+  # Check BannedContent
+  if(IsBannedContent()) { return 0; }
+  # If there are no questions, assume passed
+  if(!%QuestionAnswer) { return 1; }
+  # If the form was sumbitted without "question" or if it wasn't defined, fail
+  if((!exists $FORM{'session'}) or (!defined $FORM{'session'})) {
+    return 0;
+  }
+  # If the form was submitted without the answer or it wasn't defined, fail
+  if((!exists $FORM{'answer'}) or (!defined $FORM{'answer'})) {
+    return 0;
+  }
+  # Check the answer against the question asked
+  my %AnswerQuestions = reverse %QuestionAnswer;
+  my $question = $AnswerQuestions{lc $FORM{'answer'}};
+  # "Checksum" of the question
+  my $qcs = unpack("%32W*",$question) % 65535;
+  # If checksum doesn't match, don't pass
+  if($qcs != $FORM{'question'}) { return 0; }
+  # Check BannedContent
+
+  # Nothing else? Return 1.
+  return 1;
+}
+
+sub DoDiscuss {
+  # Displays the discussion form
+  #my @returndiscuss = ();
+  if(!CanDiscuss()) {
+    return;
+  }
+  RedHerringForm();
+  print "<form action='$ScriptName' method='post'>
+    <input type='hidden' name='doing' value='discuss' />
+    <input type='hidden' name='file' value='$Page' />
+    <textarea name='text' cols='80' rows='10'>$NewComment</textarea><br/>
+    Name: <input type='text' name='uname' size='30' value='$UserName' /> 
+    URL (optional): <input type='text' name='url' size='50' />";
+  AntiSpam();
+  print "<input type='submit' value='Save' />
+    </form>";
 }
 
 sub DoRecentChanges {
@@ -1367,7 +1445,12 @@ sub DoPostingEditing {
       Preview($FORM{'file'});
       $redir = 1;
     } else {
-      WriteFile($FORM{'file'}, $FORM{'text'}, $FORM{'uname'});
+      if(PassesSpamCheck()) {
+	WriteFile($FORM{'file'}, $FORM{'text'}, $FORM{'uname'});
+      } else {
+        DoPostingSpam();
+        return;
+      }
     }
   }
   if($redir) {
@@ -1379,7 +1462,11 @@ sub DoPostingEditing {
 
 sub DoPostingDiscuss {
   if(CanDiscuss()) {
-    AppendFile($FORM{'file'}, $FORM{'text'}, $FORM{'uname'}, $FORM{'url'});
+    if(PassesSpamCheck()) {
+      AppendFile($FORM{'file'}, $FORM{'text'}, $FORM{'uname'}, $FORM{'url'});
+    } else {
+      DoPostingSpam();
+    }
   }
   ReDirect($Url.$FORM{'file'});
 }
@@ -1389,6 +1476,13 @@ sub DoPostingBlockList {
     StringToFile($FORM{'blocklist'},$BlockedList);
   }
   ReDirect($Url."?do=admin;page=block");
+}
+
+sub DoPostingBannedContent {
+  if(IsAdmin()) {
+    StringToFile($FORM{'bannedcontent'},$BannedContent);
+  }
+  ReDirect($Url."?do=admin;page=bannedcontent");
 }
 
 sub DoPosting {
@@ -1657,7 +1751,8 @@ sub DiscussCount {
 sub DoDelete {
   # Delete pages
   # Can edit?
-  if(!CanEdit) {
+  #if(!CanEdit) {
+  if(!IsAdmin()) {
     print "You can't perform this operation.";
     return;
   }
@@ -1772,14 +1867,35 @@ sub ReplaceSpaces {
   return $replacetext;
 }
 
+sub ErrorPage {
+  (my $code, my $message) = @_;
+  my %codes = (
+    '404' => '404 Not Found',	'403' => '403 Forbidden',
+    '500' => '500 Internal Server Error',	'501' => '501 Not Implemented',
+    '503' => '503 Service Unavailable',
+  );
+
+  my $header;
+  if($codes{$code}) { $header = "Status: $codes{$code}\n"; }
+  $HTTPStatus = $header;
+  $header .= "Content-type: text/html\n\n";
+  print $header;
+  print "<html><head><title>$codes{$code}</title></head><body>";
+  print '<h1 style="border-bottom: 2px solid rgb(0,0,0); font-size:medium; margin: 4ex 0px 1ex; padding:0px;">'.$codes{$code}.'</h1>';
+  print "<p>$message</p>";
+  print '</body></html>';
+  #exit 1;
+}
+
 sub DoRequest {
   # Blocked?
   if(IsBlocked()) {
-    $HTTPStatus = "Status: 403 Forbidden\n";
-    print $HTTPStatus . "Content-type: text/html\n\n";
-    print '<html><head><title>403 Forbidden</title></head><body>'.
-      "<h1>Forbidden</h1><p>You've been banned. Please don't come back.</p>".
-      "</body></html>";
+    #$HTTPStatus = "Status: 403 Forbidden\n";
+    #print $HTTPStatus . "Content-type: text/html\n\n";
+    #print '<html><head><title>403 Forbidden</title></head><body>'.
+    #  "<h1>Forbidden</h1><p>You've been banned. Please don't come back.</p>".
+    #  "</body></html>";
+    ErrorPage(403, "You've been banned. Please don't come back.");
     return;
   }
 
@@ -1842,7 +1958,7 @@ sub DoRequest {
       DoRecentChanges();
     }
     if($Page =~ m/^$DiscussPrefix/ and ($SiteMode < 2 or IsAdmin())) {
-      print DoDiscuss();
+      DoDiscuss();
     }
   }
   if($Debug) {
@@ -1862,8 +1978,8 @@ DoMaint();	# Run maintenance commands
 # Everything below the DATA line is the default "theme"
 
 __DATA__
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
 <head>
 <title>$PageName - $SiteName</title>
 <link rel="alternate" type="application/wiki" title="Edit this page" href="$Url?do=edit;page=$Page" />

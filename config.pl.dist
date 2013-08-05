@@ -85,7 +85,7 @@ $MaxVisitorLog = 1000;
 # $NewPage - This variable controls what is shown to users who visit a link
 #  within your wiki that leads to a page that has not been created yet. The
 #  default value is set below:
-$NewPage = '<p>It appears that there is nothing here.</p>';
+$NewPage = 'It appears that there is nothing here.';
 
 # $NewComment - This variable controls what is shown in the comment textarea
 #  on your site. The default is:
@@ -145,6 +145,23 @@ $PostFooter = '';
 #  have .htaccess configured (see htaccess.dist). Set it to 0 if you do not
 #  wish to use .htaccess or prefer to use the scriptname?Page method.
 $FancyUrls = 1;
+
+# %QuestionAnswer - This hash holds the questions/answers for the anti-spam
+#  textcha. Questions will only be asked of those who are no authenticated.
+#  If you set this hash to be empty, no question will ever be asked (be warned
+#  that this will open your wiki up to getting spammed if you allow open
+#  editing). The default set of questions is sane, however you may want to 
+#  change them, or add your own, as spambots will likely figure out the default
+#  set of questions.
+# 
+#  Uncomment this line to leave it EMPTY:
+#%QuestionAnswer = ();
+#  This line has the default questions. Add to them using the same format.
+#  Answers should be in all lower-case.
+%QuestionAnswer = (
+  'What planet do you live on?' => 'earth',
+  'Type the word YES if you are human:' => 'yes',
+);
 
 # $Header and $Footer - These variables are used in "theming" your site. If
 #  either one is blank, the default theme will be used. You can either fill
