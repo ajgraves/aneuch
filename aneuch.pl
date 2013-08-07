@@ -43,7 +43,7 @@ $RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog
 %Commands %AdminActions %AdminList $RemoveOldTemp $ArgList $ShortDir
 @NavBarPages $BlockedList %PostingActions $HTTPStatus $PurgeRC %MaintActions
 $PurgeArchives $SearchPage $SearchBox $TemplateDir $Template $FancyUrls
-%QuestionAnswer $BannedContent);
+%QuestionAnswer $BannedContent %Param);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
@@ -117,9 +117,17 @@ sub InitVars {
 
   # Get page name that is being requested
   $Page = ((defined $ENV{'PATH_INFO'}) and ($ENV{'QUERY_STRING'} eq '')) ? $ENV{'PATH_INFO'} : $ENV{'QUERY_STRING'};
-  #$Page = $ENV{'QUERY_STRING'};	# Should be the pagea
+  #$Page = $ENV{'QUERY_STRING'};	# Should be the page
+  $Page =~ s/&/;/g;             # Replace ampersand with semicolon
+  $Page =~ s/^\?{1,}//;	# Get rid of leading '?', if it's there.
+  if($Page =~ m/=/) {	# We're getting some variables
+    foreach my $arg (split(/;/,$Page)) {
+      my @args = split(/=/,$arg);
+      $Param{$args[0]} = $args[1];
+    }
+  }
+  if(GetParam('page',0)) { $Page = $Param{page}; }
   if($Page =~ m/^\//) { $Page =~ s!/!!; }
-  $Page =~ s/&/;/g;		# Replace ampersand with semicolon
   # If there is a space in the page name, and it's not part of a command,
   #  we're going to convert all the spaces to underscores and re-direct.
   if(($Page =~ m/.*\s.*/ or $Page =~ m/^\s.*/) and !$Page =~ m/^?/) {
@@ -127,7 +135,8 @@ sub InitVars {
     ReDirect($Url.$Page);
     exit 0;
   }
-  $Page =~ s/\+/ /g;		# Replace + with space...
+  #$Page =~ s/\+/ /g;		# Replace + with space...
+  if(GetParam('search',0)) { $Param{search} =~ s/\+/ /g; }
   $Page =~ s/%([a-fA-F0-9][a-fA-F0-9])/pack("C", hex($1))/eg;   # Get "plain"
   $Page =~ s!^/!!;		# Remove leading slash, if it exists
   $Page =~ s!\.{2,}!!g;         # Remove every instance of double period
@@ -139,18 +148,18 @@ sub InitVars {
     ReDirect($Url.$Page);	# Redirect to the page sans trailing slash
     exit 0;
   }
-  if($Page =~ m/^?do=(.*?)(;page=(.*)|)$/) { # We're getting a command directive
-    $command = $1;		# Set the command
-    $Page = $3; #if $2;		# Set the page
-    if($Page =~ m/^.*?;(.*)$/) { # If there are still arguments...
-      my @tv = split(/;/,$Page);
-      $Page = $tv[0]; shift @tv;
-      $ArgList = join(";",@tv);
-      #$ArgList = (split(/;/,$Page))[1]; # Get them
-      #$Page = (split(/;/,$Page))[0]; # Set page properly
-    }
-    $command =~ s/^\?//;	# Get rid of leading '?', if it's there.
-  }
+  #if($Page =~ m/^?do=(.*?)(;page=(.*)|)$/) { # We're getting a command directive
+  #  $command = $1;		# Set the command
+  #  $Page = $3; #if $2;		# Set the page
+  #  if($Page =~ m/^.*?;(.*)$/) { # If there are still arguments...
+  #    my @tv = split(/;/,$Page);
+  #    $Page = $tv[0]; shift @tv;
+  #    $ArgList = join(";",@tv);
+  #    #$ArgList = (split(/;/,$Page))[1]; # Get them
+  #    #$Page = (split(/;/,$Page))[0]; # Set page properly
+  #  }
+  #  $command =~ s/^\?//;	# Get rid of leading '?', if it's there.
+  #}
   if($Page eq "") { 
     $Page = $DefaultPage;	# Default if blank
     #ReDirect($Url.$DefaultPage);
@@ -164,14 +173,16 @@ sub InitVars {
 
 
   # I know we just went through all that crap, but if command=admin, we need:
-  if($command and $command eq 'admin') {
+  #if($command and $command eq 'admin') {
+  if(GetParam('do','') eq 'admin') {
     $PageName = 'Admin';
     #$ShortPage = '';
     #$Page = '';
   }
 
   # Discuss, edit links
-  if(!$command) { #or $command ne 'admin') {
+  #if(!$command) { #or $command ne 'admin') {
+  if(!GetParam('do')) {
     if($Page !~ m/^$DiscussPrefix/) {	# Not a discussion page
       $DiscussLink = $ShortUrl . $DiscussPrefix . $Page;
       $DiscussText = $DiscussPrefix;
@@ -205,11 +216,13 @@ sub InitVars {
   }
 
   # If we're a command, change the page title
-  if($command) {
-    if($command eq 'search') { 
-      $ArgList = $Page;
-      $PageName = "Search for: $PageName";
-     }
+  #if($command) {
+  if(GetParam('do') eq 'search') {
+    #if($command eq 'search') { 
+    #if($Param{do} eq 'search') {
+      #$ArgList = $Page;
+      $PageName = "Search for: ".GetParam('search'); #$Param{search}"; #$PageName";
+    #}
   }
 
   # Set the TimeStamp
@@ -484,6 +497,15 @@ sub Interpolate {
   return $work;
 }
 
+sub GetParam {
+  (my $ParamToGet, my $Default) = @_;
+  if(exists $Param{$ParamToGet} and defined $Param{$ParamToGet}) {
+    return $Param{$ParamToGet};
+  } else {
+    return (defined $Default) ? $Default : 0;
+  }
+}
+
 sub GetFile {
   # GetFile will read the file into a hash, and return it.
   my $file = shift;
@@ -678,7 +700,7 @@ sub DoEdit {
     if(@preview or SetLock()) {
       #print 'Summary: <input type="text" name="summary" size="60" />';
       print 'Summary:<br/><textarea name="summary" cols="100" rows="2"></textarea><br/>';
-      print ' User name: <input type="text" name="uname" size="12" value="'.$UserName.'" /> ';
+      print ' User name: <input type="text" name="uname" size="30" value="'.$UserName.'" /> ';
       print ' <a rel="nofollow" href="'.$ShortUrl.'?do=delete;page='.$Page.'">'.
 	'Delete Page</a> ';
       AntiSpam();
@@ -863,9 +885,9 @@ sub AdminForm {
   my ($u,$p) = ReadCookie();
   print '<form action="' . $ScriptName . '" method="post">';
   print '<input type="hidden" name="doing" value="login" />';
-  print 'User: <input type="text" maxlength="30" size="8" name="user" value="'.
+  print 'User: <input type="text" maxlength="30" size="20" name="user" value="'.
   $u.'" />';
-  print ' Pass: <input type="password" size="12" name="pass" />';
+  print ' Pass: <input type="password" size="20" name="pass" />';
   print '<input type="submit" value="Go" /></form>';
 }
 
@@ -931,9 +953,10 @@ sub DoAdminClearVisits {
 sub DoAdminListVisitors {
   my $lim;
   # If we're getting 'limit='... (to limit by IP)
-  if($ArgList and $ArgList =~ m/^limit=(.*)$/) {
+  #if($ArgList and $ArgList =~ m/^limit=(.*)$/) {
+  if(GetParam('limit',0)) {
     #m/^limit=(\d+\.\d+\.\d+\.\d+)$/) {
-    $lim = $1;
+    $lim = GetParam('limit'); #$1;
     print "Limiting by '$lim', <a href='$ShortUrl?do=admin;page=visitors'>".
       "remove limit</a>"
   }
@@ -1029,8 +1052,9 @@ sub DoAdminUnlock {
 sub DoAdminBlock {
   my $blocked = FileToString($BlockedList);
   my @bl = split(/\n/,$blocked);
-  print scalar @bl." user(s) blocked. Add an IP address, one per line, that ".
-    "you wish to block.<br/>";
+  print "<p>".scalar @bl." user(s) blocked. Add an IP address, one per line, ".
+    "that you wish to block. Regular expressions are allowed (be careful!). ".
+    "Lines that begin with '#' are considered comments and ignored.</p>";
   print "<form action='$ScriptName' method='post'>".
     "<input type='hidden' name='doing' value='blocklist' />".
     "<textarea name='blocklist' rows='30' cols='100'>".$blocked.
@@ -1242,7 +1266,8 @@ sub DoSearch {
   my @files = (glob("$PageDir/*/*"));
   # Sort by modification time, newest first
   @files = sort {(stat($b))[9] <=> (stat($a))[9]} @files;
-  my $search = $ArgList;
+  #my $search = $ArgList;
+  my $search = GetParam('search','');
   my %result;
   print "<p>Search results for &quot;$search&quot;</p>";
   foreach my $file (@files) {
@@ -1286,7 +1311,7 @@ sub SearchForm {
   #  "action='$ScriptName' method='get'>";
   $ret = "<form class='searchform' action='$ShortUrl' method='get'>";
   $ret .= "<input type='hidden' name='do' value='search' />";
-  $ret .= "<input type='text' name='page' size='40' />";
+  $ret .= "<input type='text' name='search' size='40' />";
   $ret .= " <input type='submit' value='Search' /></form>";
   return $ret;
 }
@@ -1495,10 +1520,17 @@ sub DoPosting {
 
 sub DoVisit {
   # Log a visit to the visitor log
-  my $mypage = $Page; $mypage =~ s/ /+/g;
+  #my $mypage = $Page; 
+  my $mypage = (GetParam('search')) ? GetParam('search') : $Page;
+  $mypage =~ s/ /+/g;
   my $logentry = "$UserIP\t$TimeStamp\t$mypage";
-  if($PageRevision) { $command .= "$PageRevision"; }
-  if($command) { $logentry .= " ($command)"; }
+  #if($PageRevision) { $command .= "$PageRevision"; }
+  #if($command) { $logentry .= " ($command)"; }
+  if(GetParam('do')) { 
+    $logentry .= " (".GetParam('do');
+    if($PageRevision) { $logentry .= "$PageRevision"; }
+    $logentry .= ")";
+  }
   if($HTTPStatus) { 
     chomp(my $tv = $HTTPStatus);
     $tv =~ s/Status: //;
@@ -1669,8 +1701,10 @@ sub HTMLDiff {
 
 sub DoDiff {
   # If there are no more arguments, assume we want most recent diff
-  if(!$ArgList) {
+  #if(!$ArgList) {
+  if(!GetParam('v1') and !GetParam('v2')) {
     my %F = GetFile("$PageDir/$ShortDir/$Page");
+    print "Showing changes to the most recent revision";
     print HTMLDiff($F{diff});
     print "<hr/>";
     if(defined &Markup) {
@@ -1680,15 +1714,20 @@ sub DoDiff {
     }
   } else {
     #if($ArgList =~ m/^rev=(\d+)($|\.?(\d+))/) {
-    my @args = split(/;/,$ArgList);
+    #my @args = split(/;/,$ArgList);
     my %rv;
-    if($#args = 1) {
-      foreach my $cc (@args) {
-	my @aaa = split(/=/,$cc);
-	if($aaa[1] ne 'cur') { $rv{$aaa[0]} = $aaa[1]; }
-      }
-    } else {
-      $rv{v1} = (split(/=/,$ArgList))[1];
+    #if($#args = 1) {
+    if(!GetParam('v1')) {
+      #foreach my $cc (@args) {
+	#my @aaa = split(/=/,$cc);
+	#if($aaa[1] ne 'cur') { $rv{$aaa[0]} = $aaa[1]; }
+      #}
+      $Param{v1} = $Param{v2};
+    #} else {
+      #$rv{v1} = (split(/=/,$ArgList))[1];
+    }
+    foreach my $v ('v1', 'v2') {
+      if($Param{$v} ne 'cur') { $rv{$v} = GetParam($v); }
     }
     #if($ArgList =~ m
       my %F;
@@ -1761,7 +1800,8 @@ sub DoDelete {
     print "That page doesn't exist!";
     return;
   }
-  if($ArgList eq "confirm=yes") {
+  #if($ArgList eq "confirm=yes") {
+  if(GetParam('confirm','') eq "yes") {
     # Delete the page
     print "<p>Removing page... ";
     if(unlink "$PageDir/$ShortDir/$Page") {
@@ -1804,8 +1844,9 @@ sub DoDelete {
 }
 
 sub DoRevision {
-  if($ArgList =~ m/rev=(\d{1,})$/) {
-    $PageRevision = $1;
+  #if($ArgList =~ m/rev=(\d{1,})$/) {
+  if(GetParam('rev',0)) {
+    $PageRevision = GetParam('rev'); #$1;
     if(-f "$ArchiveDir/$ShortDir/$Page.$PageRevision") {
       my %Filec = GetFile("$ArchiveDir/$ShortDir/$Page.$PageRevision");
       print "<h1>Revision $Filec{revision}</h1>\n<a href=\"".
@@ -1828,15 +1869,18 @@ sub DoRevert {
     print "Can't do that, I'm afraid.";
     return;
   }
-  my @vals = split(/=/,$ArgList);
-  if($vals[0] eq 'ver' and $vals[1]) {
-    if(-f "$ArchiveDir/$ShortDir/$Page.$vals[1]") {
-      my %f = GetFile("$ArchiveDir/$ShortDir/$Page.$vals[1]");
+  #my @vals = split(/=/,$ArgList);
+  #if($vals[0] eq 'ver' and $vals[1]) {
+  if(GetParam('ver',0)) {
+    #if(-f "$ArchiveDir/$ShortDir/$Page.$vals[1]") {
+    if(-f "$ArchiveDir/$ShortDir/$Page.".GetParam('ver')) {
+      #my %f = GetFile("$ArchiveDir/$ShortDir/$Page.$vals[1]");
+      my %f = GetFile("$ArchiveDir/$ShortDir/$Page.".GetParam('ver'));
       my %t = GetFile("$PageDir/$ShortDir/$Page");
       $FORM{summary} = "Revert to ".(FriendlyTime($f{ts}))[$TimeZone];
       $FORM{revision} = $t{revision};
       WriteFile($Page, $f{text}, $UserName);
-      print "Reverted to page revision $vals[1]";
+      print "Reverted to page revision ".GetParam('ver'); #$vals[1]";
     } else {
       print "That revision doesn't exist!";
     } 
@@ -1853,12 +1897,16 @@ sub DoSpam {
 
 sub IsBlocked {
   if(!-f $BlockedList) { return 0; }
-  chomp(my @blocked = FileToArray($BlockedList));
-  if(grep(/^$UserIP$/,@blocked)) {
-    return 1;
-  } else {
-    return 0;
+  #chomp(my @blocked = FileToArray($BlockedList));
+  #my @blocked = FileToArray($BlockedList);
+  #if(grep(/^$UserIP$/,@blocked)) {
+  foreach my $blocked (FileToArray($BlockedList)) {
+    next if $blocked =~ /^#/;
+    if($UserIP =~ m/$blocked/) { return 1; }
+  #} else {
+  #  return 0;
   }
+  return 0;
 }
 
 sub ReplaceSpaces {
@@ -1906,15 +1954,19 @@ sub DoRequest {
   }
 
   # Check if page exists or not, and not calling a command
-  if(! -f "$PageDir/$ShortDir/$Page" and !$command and !$Commands{$command}) {
+  #if(! -f "$PageDir/$ShortDir/$Page" and !$command and !$Commands{$command}) {
+  if(! -f "$PageDir/$ShortDir/$Page" and !GetParam('do') and !$Commands{GetParam('do')}) {
     $HTTPStatus = "Status: 404 Not Found\n";
   }
 
   # Check if we're looking for a revision, and see if it exists...
   # Unfortunately this is the best place to check, but I still don't like it.
-  if($command eq 'revision') {
-    if($ArgList =~ m/rev=(\d{1,})$/) {
-      my $rev = $1;
+  #if($command eq 'revision') {
+  if(GetParam('do') eq 'revision') {
+    #if($ArgList =~ m/rev=(\d{1,})$/) {
+    if(defined $Param{rev}) {
+      #my $rev = $1;
+      my $rev = $Param{rev};
       if(! -f "$ArchiveDir/$ShortDir/$Page.$rev") {
 	$HTTPStatus = "Status: 404 Not Found\n";
       }
@@ -1937,8 +1989,10 @@ sub DoRequest {
   # Header
   print Interpolate($Header);
   # This is where the magic happens
-  if($command and $Commands{$command}) {	# Command directive?
-    &{$Commands{$command}};			# Execute it.
+  #if($command and $Commands{$command}) {	# Command directive?
+  if(defined $Param{do} and $Commands{$Param{do}}) {
+    #&{$Commands{$command}};			# Execute it.
+    &{$Commands{$Param{do}}};
   } else {
     if(! -f "$PageDir/$ShortDir/$Page") {	# Doesn't exist!
       print $NewPage;
@@ -2145,7 +2199,7 @@ pre { border:0; font-size:10pt; }
 <body>
 <div class="header">
 <div class="navbar">$NavBar</div><br/>
-<h1><a title="Search for references to $Page" rel="nofollow" href="$ShortUrl?do=search;page=$SearchPage">$PageName</a></h1></div>
+<h1><a title="Search for references to $Page" rel="nofollow" href="$ShortUrl?do=search;search=$SearchPage">$PageName</a></h1></div>
 <div class="wrapper">
 !!CONTENT!!
 </div>
