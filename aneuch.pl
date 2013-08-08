@@ -43,7 +43,7 @@ $RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog
 %Commands %AdminActions %AdminList $RemoveOldTemp $ArgList $ShortDir
 @NavBarPages $BlockedList %PostingActions $HTTPStatus $PurgeRC %MaintActions
 $PurgeArchives $SearchPage $SearchBox $TemplateDir $Template $FancyUrls
-%QuestionAnswer $BannedContent %Param);
+%QuestionAnswer $BannedContent %Param %SpecialPages);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
@@ -117,6 +117,7 @@ sub InitVars {
 
   # Get page name that is being requested
   $Page = ((defined $ENV{'PATH_INFO'}) and ($ENV{'QUERY_STRING'} eq '')) ? $ENV{'PATH_INFO'} : $ENV{'QUERY_STRING'};
+  $Page =~ s/%([a-fA-F0-9][a-fA-F0-9])/pack("C", hex($1))/eg;   # Get "plain"
   #$Page = $ENV{'QUERY_STRING'};	# Should be the page
   $Page =~ s/&/;/g;             # Replace ampersand with semicolon
   $Page =~ s/^\?{1,}//;	# Get rid of leading '?', if it's there.
@@ -124,6 +125,9 @@ sub InitVars {
     foreach my $arg (split(/;/,$Page)) {
       my @args = split(/=/,$arg);
       $Param{$args[0]} = $args[1];
+    }
+    if(!GetParam('page')) {
+      $Param{page} = (GetParam('do',0)) ? GetParam('do') : $Page;
     }
   }
   if(GetParam('page',0)) { $Page = $Param{page}; }
@@ -137,7 +141,7 @@ sub InitVars {
   }
   #$Page =~ s/\+/ /g;		# Replace + with space...
   if(GetParam('search',0)) { $Param{search} =~ s/\+/ /g; }
-  $Page =~ s/%([a-fA-F0-9][a-fA-F0-9])/pack("C", hex($1))/eg;   # Get "plain"
+  #$Page =~ s/%([a-fA-F0-9][a-fA-F0-9])/pack("C", hex($1))/eg;   # Get "plain"
   $Page =~ s!^/!!;		# Remove leading slash, if it exists
   $Page =~ s!\.{2,}!!g;         # Remove every instance of double period
   # Wait! If there's a trailing slash, let's remove and redirect...
@@ -273,7 +277,7 @@ sub InitVars {
     clearvisits => 'Clear visitor log',
     lock => 'Lock the site for editing/discussions',
     unlock => 'Unlock the site',
-    block => '(Un)Block users',
+    block => 'Block users',
     bannedcontent => 'Ban certain types of content',
   );
   # Posting actions
@@ -288,6 +292,10 @@ sub InitVars {
     purgerc => \&DoMaintPurgeRC,	purgetemp => \&DoMaintPurgeTemp,
     purgeoldr => \&DoMaintPurgeOldRevs, trimvisit => \&DoMaintTrimVisit,
   );
+
+  # Special Pages
+  SetSpecialPage('RecentChanges', \&DoRecentChanges);
+  SetSpecialPage("$DiscussPrefix*", \&DoDiscuss);
 }
 
 sub InitTemplate {
@@ -325,8 +333,8 @@ sub MarkupBuildLink {
       $return = "<a title='".$href."' href='".$ShortUrl.ReplaceSpaces($href).
 	"'>".$text."</a>";
     } else {
-      $return = "[$text<a title='Create page ".$href."' href='".$ShortUrl.
-	"?do=edit;page=".ReplaceSpaces($href)."'>?</a>]";
+      $return = "[$text<a rel='nofollow' title='Create page ".$href.
+	"' href='".$ShortUrl."?do=edit;page=".ReplaceSpaces($href)."'>?</a>]";
     }
   }
   return $return;
@@ -495,6 +503,19 @@ sub Interpolate {
   my $work = shift;
   $work =~ s/(\$\w+(?:::)?\w*)/"defined $1 ? $1 : ''"/gee;
   return $work;
+}
+
+sub SetSpecialPage {
+  my ($page, $sref) = @_;
+  return unless $page;
+  $SpecialPages{$page} = $sref;
+}
+
+sub DoSpecialPage {
+  #if(exists $SpecialPages{$Page} and defined $SpecialPages{$Page}) {
+  foreach my $spage (sort keys %SpecialPages) { 
+    if($Page =~ m/$spage/) { &{$SpecialPages{$spage}}; return; }
+  }
 }
 
 sub GetParam {
@@ -803,6 +824,7 @@ sub WriteFile {
   my %F;
   # Build file information
   $F{summary} = $FORM{summary};
+  $F{summary} =~ s/\r//g; $F{summary} =~ s/\n//g;
   $F{ip} = $UserIP;
   $F{author} = $user;
   $F{ts} = $TimeStamp;
@@ -887,7 +909,7 @@ sub AdminForm {
   print '<input type="hidden" name="doing" value="login" />';
   print 'User: <input type="text" maxlength="30" size="20" name="user" value="'.
   $u.'" />';
-  print ' Pass: <input type="password" size="20" name="pass" />';
+  print ' Pass: <input type="password" size="20" name="pass" value="'.$p.'" />';
   print '<input type="submit" value="Go" /></form>';
 }
 
@@ -965,7 +987,7 @@ sub DoAdminListVisitors {
   @lf = reverse(@lf);	# Most recent entries are on bottom... fix that.
   chomp(@lf);
   if($lim) {
-    @lf = grep(/$lim/,@lf);
+    @lf = grep(/$lim/i,@lf);
   }
   my $curdate;
   my @IPs;
@@ -1085,9 +1107,10 @@ sub DoAdmin {
     print '<p>You may:<ul><li><a href="'.$ShortUrl.
     '?do=admin;page=password">Authenticate</a></li>';
     if(IsAdmin()) {
-      foreach my $listitem (keys %AdminList) {
-	print '<li><a href="'.$ShortUrl.'?do=admin;page='.$listitem.
-	'">'.$AdminList{$listitem}.'</a></li>';
+      my %al = reverse %AdminList;
+      foreach my $listitem (sort keys %al) {
+	print '<li><a href="'.$ShortUrl.'?do=admin;page='.$al{$listitem}.
+	'">'.$listitem.'</a></li>';
       }
     }
     print '</ul></p>';
@@ -1203,7 +1226,7 @@ sub DoDiscuss {
     return;
   }
   RedHerringForm();
-  print "<form action='$ScriptName' method='post'>
+  print "<p></p><form action='$ScriptName' method='post'>
     <input type='hidden' name='doing' value='discuss' />
     <input type='hidden' name='file' value='$Page' />
     <textarea name='text' cols='80' rows='10'>$NewComment</textarea><br/>
@@ -1268,6 +1291,7 @@ sub DoSearch {
   @files = sort {(stat($b))[9] <=> (stat($a))[9]} @files;
   #my $search = $ArgList;
   my $search = GetParam('search','');
+  my $altsearch = $search; $altsearch =~ s/ /_/g;
   my %result;
   print "<p>Search results for &quot;$search&quot;</p>";
   foreach my $file (@files) {
@@ -1276,12 +1300,12 @@ sub DoSearch {
     my $matchcount;
     $fn =~ s#^$PageDir/.*?/##;
     my %F = GetFile($file);
-    if($fn =~ m/.*?$search.*?/i) {
+    if($fn =~ m/.*?($search|$altsearch).*?/i) {
       $linkedtopage = 1;
       $result{$fn} = '<small>Last modified '.
 	(FriendlyTime($F{ts}))[$TimeZone]."</small><br/>";
     }
-    while($F{text} =~ m/(.{0,25}$search.{0,25})/gsi) {
+    while($F{text} =~ m/(.{0,25}($search|$altsearch).{0,25})/gsi) {
       if(!$linkedtopage) {
 	$linkedtopage = 1;
 	$result{$fn} = '<small>Last modified '.
@@ -1289,7 +1313,7 @@ sub DoSearch {
       }
       if($matchcount == 0) { $result{$fn} .= " . . . "; }
       my $res = QuoteHTML($1); 
-      $res =~ s#(.*?)($search)(.*?)#$1<strong>$2</strong>$3#gsi;
+      $res =~ s#(.*?)($search|$altsearch)(.*?)#$1<strong>$2</strong>$3#gsi;
       $result{$fn} .= "$res . . . ";
       $matchcount++;
     }
@@ -1974,13 +1998,13 @@ sub DoRequest {
   }
 
   # Build $SearchPage
-  if(PageExists($Page)) {
-    $SearchPage = $Page;
-  } else {
+  #if(PageExists($Page)) {
+  #  $SearchPage = $Page;
+  #} else {
     $SearchPage = $PageName;    # SearchPage is PageName with + for spaces
     $SearchPage =~ s/Search for: //;
     $SearchPage =~ s/ /+/g;     # Change spaces to +
-  }
+  #}
 
 
   # HTTP Header
@@ -2008,12 +2032,13 @@ sub DoRequest {
       $MTime = "Last modified: ".(FriendlyTime($Filec{ts}))[$TimeZone]." by ".
 	$Filec{author} . "<br/>";
     }
-    if($Page eq 'RecentChanges') {
-      DoRecentChanges();
-    }
-    if($Page =~ m/^$DiscussPrefix/ and ($SiteMode < 2 or IsAdmin())) {
-      DoDiscuss();
-    }
+    #if($Page eq 'RecentChanges') {
+    #  DoRecentChanges();
+    #}
+    DoSpecialPage();
+    #if($Page =~ m/^$DiscussPrefix/ and ($SiteMode < 2 or IsAdmin())) {
+    #  DoDiscuss();
+    #}
   }
   if($Debug) {
     $DebugMessages = join("<br/>", @Messages);
