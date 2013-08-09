@@ -27,11 +27,12 @@
 ## This is Aneuch, which means 'enough.' I hope this wiki is enough for you.
 ## **********************************************************************
 package Aneuch;
-use strict;
-use POSIX qw(strftime);
+use 5.010;		# Require perl 5.10 or higher
+use strict;		# Require strict declarations
+use POSIX qw(strftime);	# String from time
 use Fcntl qw(:flock :seek); # import LOCK_* and SEEK_END constants
 #use CGI::Carp qw(fatalsToBrowser);
-local $| = 1;
+local $| = 1;		# Do not buffer output
 # Some variables
 use vars qw($DataDir $SiteName $Page $ShortPage @Passwords $PageDir $ArchiveDir
 $ShortUrl $SiteMode $ScriptName $ShortScriptName $Header $Footer $PluginDir 
@@ -72,6 +73,8 @@ sub InitScript {
 }
 
 sub InitVars {
+  # Safe path
+  $ENV{'path'} = '/usr/bin:/bin';
   # We must be the first entry in Plugins
   @Plugins = ("aneuch.pl, version $VERSION, <a href='http://aneuch.myunixhost.com/' target='_blank'>Aneuch Wiki Engine</a>");
   # Define settings
@@ -179,7 +182,7 @@ sub InitVars {
   # I know we just went through all that crap, but if command=admin, we need:
   #if($command and $command eq 'admin') {
   if(GetParam('do','') eq 'admin') {
-    $PageName = 'Admin';
+    #$PageName = 'Admin';
     #$ShortPage = '';
     #$Page = '';
   }
@@ -251,41 +254,73 @@ sub InitVars {
   $SearchBox = SearchForm() unless $SearchBox;  # Search box code
 
   # For the Admin stuff
-  %Commands = (			# This is the list of commands, and their subs
-    admin => \&DoAdmin,		edit => \&DoEdit,
-    search => \&DoSearch,	history => \&DoHistory,
-    random => \&DoRandom,	diff => \&DoDiff,
-    delete => \&DoDelete,	revision => \&DoRevision,
-    revert => \&DoRevert,	spam => \&DoSpam,
-    recentchanges => \&DoRecentChanges,
-    index => \&DoAdminIndex,
-  );
-  %AdminActions = (		# List of admin actions, and their subs
-    password => \&DoAdminPassword,	version => \&DoAdminVersion,
-    index => \&DoAdminIndex,		reindex => \&DoAdminReIndex,
-    rmlocks => \&DoAdminRemoveLocks,	visitors => \&DoAdminListVisitors,
-    lock => \&DoAdminLock,		unlock => \&DoAdminUnlock,
-    block => \&DoAdminBlock,		clearvisits => \&DoAdminClearVisits,
-    bannedcontent => \&DoAdminBannedContent,
-  );
-  %AdminList = (		# For the Admin menu
-    version => 'View version information',
-    index => 'List all pages',
-    reindex => 'Rebuild page index',
-    rmlocks => 'Force delete page locks',
-    visitors => 'Display visitor log',
-    clearvisits => 'Clear visitor log',
-    lock => 'Lock the site for editing/discussions',
-    unlock => 'Unlock the site',
-    block => 'Block users',
-    bannedcontent => 'Ban certain types of content',
-  );
+  #%Commands = (			# This is the list of commands, and their subs
+  #  admin => \&DoAdmin,		edit => \&DoEdit,
+  #  search => \&DoSearch,	history => \&DoHistory,
+  #  random => \&DoRandom,	diff => \&DoDiff,
+  #  delete => \&DoDelete,	revision => \&DoRevision,
+  #  revert => \&DoRevert,	spam => \&DoSpam,
+  #  recentchanges => \&DoRecentChanges,
+  #  index => \&DoAdminIndex,
+  #);
+  RegCommand('admin', \&DoAdmin);
+  RegCommand('edit', \&DoEdit);
+  RegCommand('search', \&DoSearch);
+  RegCommand('history', \&DoHistory);
+  RegCommand('random', \&DoRandom);
+  RegCommand('diff', \&DoDiff);
+  RegCommand('delete', \&DoDelete);
+  RegCommand('revision', \&DoRevision);
+  RegCommand('revert', \&DoRevert);
+  RegCommand('spam', \&DoSpam);
+  RegCommand('recentchanges', \&DoRecentChanges);
+  RegCommand('index', \&DoAdminIndex);
+  # 'password' has to be set by itself, since technically there isn't a menu
+  #  item for it in the %AdminList (it's hard coded)
+  $AdminActions{'password'} = \&DoAdminPassword;
+  #%AdminActions = (		# List of admin actions, and their subs
+  #  password => \&DoAdminPassword,	version => \&DoAdminVersion,
+  #  index => \&DoAdminIndex,		reindex => \&DoAdminReIndex,
+  #  rmlocks => \&DoAdminRemoveLocks,	visitors => \&DoAdminListVisitors,
+  #  lock => \&DoAdminLock,		unlock => \&DoAdminUnlock,
+  #  block => \&DoAdminBlock,		clearvisits => \&DoAdminClearVisits,
+  #  bannedcontent => \&DoAdminBannedContent,
+  #);
+  #%AdminList = (		# For the Admin menu
+  #  version => 'View version information',
+  #  index => 'List all pages',
+  #  reindex => 'Rebuild page index',
+  #  rmlocks => 'Force delete page locks',
+  #  visitors => 'Display visitor log',
+  #  clearvisits => 'Clear visitor log',
+  #  lock => 'Lock the site for editing/discussions',
+  #  unlock => 'Unlock the site',
+  #  block => 'Block users',
+  #  bannedcontent => 'Ban certain types of content',
+  #);
+  RegAdminPage('version', 'View version information', \&DoAdminVersion);
+  RegAdminPage('index', 'List all pages', \&DoAdminIndex);
+  RegAdminPage('reindex', 'Rebuild page index', \&DoAdminReIndex);
+  RegAdminPage('rmlocks', 'Force delete page locks', \&DoAdminRemoveLocks);
+  RegAdminPage('visitors', 'Display visitor log', \&DoAdminListVisitors);
+  RegAdminPage('clearvisits', 'Clear visitor log', \&DoAdminClearVisits);
+  RegAdminPage('lock', 'Lock the site for editing/discussions', \&DoAdminLock);
+  RegAdminPage('unlock', 'Unlock the site', \&DoAdminUnlock);
+  RegAdminPage('block', 'Block users', \&DoAdminBlock);
+  RegAdminPage('bannedcontent', 'Ban certain types of content',
+   \&DoAdminBannedContent);
   # Posting actions
-  %PostingActions = (
-    login => \&DoPostingLogin,		editing => \&DoPostingEditing,
-    discuss => \&DoPostingDiscuss,	blocklist => \&DoPostingBlockList,
-    commenting => \&DoPostingSpam,  bannedcontent => \&DoPostingBannedContent,
-  );
+  #%PostingActions = (
+  #  login => \&DoPostingLogin,		editing => \&DoPostingEditing,
+  #  discuss => \&DoPostingDiscuss,	blocklist => \&DoPostingBlockList,
+  #  commenting => \&DoPostingSpam,  bannedcontent => \&DoPostingBannedContent,
+  #);
+  RegPostAction('login', \&DoPostingLogin);
+  RegPostAction('editing', \&DoPostingEditing);
+  RegPostAction('discuss', \&DoPostingDiscuss);
+  RegPostAction('blocklist', \&DoPostingBlockList);
+  RegPostAction('commenting', \&DoPostingSpam);
+  RegPostAction('bannedcontent', \&DoPostingBannedContent);
 
   # Maintenance actions
   %MaintActions = (
@@ -294,8 +329,8 @@ sub InitVars {
   );
 
   # Special Pages
-  SetSpecialPage('RecentChanges', \&DoRecentChanges);
-  SetSpecialPage("$DiscussPrefix*", \&DoDiscuss);
+  RegSpecialPage('RecentChanges', \&DoRecentChanges);
+  RegSpecialPage("$DiscussPrefix*", \&DoDiscuss);
 }
 
 sub InitTemplate {
@@ -505,16 +540,88 @@ sub Interpolate {
   return $work;
 }
 
-sub SetSpecialPage {
+sub RegSpecialPage {
   my ($page, $sref) = @_;
   return unless $page;
   $SpecialPages{$page} = $sref;
+}
+
+sub UnregSpecialPage {
+  my $name = shift;
+  if(exists $SpecialPages{$name}) {
+    delete $SpecialPages{$name};
+    return 1;
+  } else {
+    return 0;
+  }
 }
 
 sub DoSpecialPage {
   #if(exists $SpecialPages{$Page} and defined $SpecialPages{$Page}) {
   foreach my $spage (sort keys %SpecialPages) { 
     if($Page =~ m/$spage/) { &{$SpecialPages{$spage}}; return; }
+  }
+}
+
+sub RegAdminPage {
+  my ($name, $description, $sref) = @_;
+  if(!exists $AdminList{$name}) {
+    $AdminList{$name} = $description;
+    $AdminActions{$name} = $sref;
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+sub UnregAdminPage {
+  my $name = shift;
+  if(exists $AdminList{$name}) {
+    delete $AdminList{$name};
+    delete $AdminActions{$name};
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+sub RegPostAction {
+  my ($name, $sref) = @_;
+  if(!exists $PostingActions{$name}) {
+    $PostingActions{$name} = $sref;
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+sub UnregPostAction {
+  my $name = shift;
+  if(exists $PostingActions{$name}) {
+    delete $PostingActions{$name};
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+sub RegCommand {
+  my ($name, $sref) = @_;
+  if(!exists $Commands{$name}) {
+    $Commands{$name} = $sref;
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+sub UnregCommand {
+  my $name = shift;
+  if(exists $Commands{$name}) {
+    delete $Commands{$name};
+    return 1;
+  } else {
+    return 0;
   }
 }
 
@@ -715,12 +822,14 @@ sub DoEdit {
   if(@preview) {
     print "<div class=\"preview\">" . Markup($contents) . "</div>";
   }
-  print '<textarea name="text" cols="100" rows="25">' . QuoteHTML($contents) . '</textarea><br/>';
+  print '<textarea name="text" cols="100" rows="25" style="width:100%">'.
+    QuoteHTML($contents).'</textarea><br/>';
   if($canedit) {
     # Set a lock
     if(@preview or SetLock()) {
       #print 'Summary: <input type="text" name="summary" size="60" />';
-      print 'Summary:<br/><textarea name="summary" cols="100" rows="2"></textarea><br/>';
+      print 'Summary:<br/><textarea name="summary" cols="100" rows="2"
+	style="width:100%"></textarea><br/>';
       print ' User name: <input type="text" name="uname" size="30" value="'.$UserName.'" /> ';
       print ' <a rel="nofollow" href="'.$ShortUrl.'?do=delete;page='.$Page.'">'.
 	'Delete Page</a> ';
@@ -929,6 +1038,10 @@ sub DoAdminVersion {
   foreach my $c (@Plugins) {
     print "<p>$c</p>\n";
   }
+  print "<p>$ENV{'SERVER_SOFTWARE'}</p>";
+  print "<p>perl: ".`perl -v`."</p>";
+  print "<p>diff: ".`diff --version`."</p>";
+  #print "<p>grep: ".`grep --version`."</p>";
 }
 
 sub DoAdminIndex {
@@ -981,6 +1094,11 @@ sub DoAdminListVisitors {
     $lim = GetParam('limit'); #$1;
     print "Limiting by '$lim', <a href='$ShortUrl?do=admin;page=visitors'>".
       "remove limit</a>"
+  } else {
+    print '<form method="get"><input type="hidden" name="do" value="admin"/>
+      <input type="hidden" name="page" value="visitors"/>
+      <input type="text" name="limit" size="40"/>
+      <input type="submit" value="Limit"/></form>';
   }
   # Display the visitors.log file
   my @lf = FileToArray($VisitorLog);
@@ -1085,6 +1203,8 @@ sub DoAdminBlock {
 
 sub DoAdminBannedContent {
   my $content = FileToString($BannedContent);
+  print "<p>".scalar(grep { length($_) and $_ !~ /^#/ } split(/\n/,$content)).
+    " rules loaded (blank lines and comments don't count).</p>";
   print "<p>CAUTION! This is very powerful! If you're not careful, you can ".
     "easily block all forms of editing on your site.</p>";
   print "<p>Enter regular expressions for content you wish to ban. Any edit ".
@@ -1203,18 +1323,20 @@ sub PassesSpamCheck {
     return 0;
   }
   # If the form was submitted without the answer or it wasn't defined, fail
-  if((!exists $FORM{'answer'}) or (!defined $FORM{'answer'})) {
+  if((!exists $FORM{'answer'}) or (!defined $FORM{'answer'}) or (Trim($FORM{'answer'}) eq '')) {
     return 0;
   }
   # Check the answer against the question asked
   my %AnswerQuestions = reverse %QuestionAnswer;
-  my $question = $AnswerQuestions{lc $FORM{'answer'}};
+  $FORM{'answer'} = lc($FORM{'answer'});
+  if((!exists $AnswerQuestions{$FORM{'answer'}}) or (!defined $AnswerQuestions{$FORM{'answer'}})) {
+    return 0;
+  }
+  my $question = $AnswerQuestions{$FORM{'answer'}};
   # "Checksum" of the question
   my $qcs = unpack("%32W*",$question) % 65535;
   # If checksum doesn't match, don't pass
   if($qcs != $FORM{'question'}) { return 0; }
-  # Check BannedContent
-
   # Nothing else? Return 1.
   return 1;
 }
@@ -1229,7 +1351,10 @@ sub DoDiscuss {
   print "<p></p><form action='$ScriptName' method='post'>
     <input type='hidden' name='doing' value='discuss' />
     <input type='hidden' name='file' value='$Page' />
-    <textarea name='text' cols='80' rows='10'>$NewComment</textarea><br/>
+    <textarea name='text' style='width:100%;' 
+    onfocus=\"if(this.value==this.defaultValue)this.value='';\"
+    onblur=\"if(this.value=='')this.value=this.defaultValue;\"
+    cols='80' rows='10'>$NewComment</textarea><br/>
     Name: <input type='text' name='uname' size='30' value='$UserName' /> 
     URL (optional): <input type='text' name='url' size='50' />";
   AntiSpam();
