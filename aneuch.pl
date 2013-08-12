@@ -44,7 +44,8 @@ $RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog
 %Commands %AdminActions %AdminList $RemoveOldTemp $ArgList $ShortDir
 @NavBarPages $BlockedList %PostingActions $HTTPStatus $PurgeRC %MaintActions
 $PurgeArchives $SearchPage $SearchBox $TemplateDir $Template $FancyUrls
-%QuestionAnswer $BannedContent %Param %SpecialPages);
+%QuestionAnswer $BannedContent %Param %SpecialPages $SurgeProtectionTime
+$SurgeProtectionCount);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
@@ -61,12 +62,8 @@ sub InitConfig  {
 
 sub InitScript {
   # Figure out the script name, URL, etc.
+  # Initially includes script name. If $FancyUrls is set, we'll get rid of it.
   $ShortUrl = $ENV{'SCRIPT_NAME'};
-  #if($ENV{'REQUEST_URI'} !~ m/$0/) {
-  #  $ShortUrl =~ s/$0//;
-  #} else {
-  #  $ShortUrl =~ s/$0/$0\?/;
-  #}
   $Url = $srvr{$ENV{'SERVER_PORT'}} . $ENV{'HTTP_HOST'} . $ShortUrl;
   $ScriptName = $ENV{'SCRIPT_NAME'};
   $ShortScriptName = $0;
@@ -98,17 +95,18 @@ sub InitVars {
   # New page and new comment default text
   $NewPage = 'It appears that there is nothing here.' unless $NewPage;
   $NewComment = 'Add your comment here.' unless $NewComment;
+  # $SurgeProtectionTime is the number of seconds in the past to check hits
+  $SurgeProtectionTime = 20 unless defined $SurgeProtectionTime;
+  # $SurgeProtectionCount is the number of hits in the defined amount of time
+  $SurgeProtectionCount = 20 unless defined $SurgeProtectionCount;
 
   # If $FancyUrls, remove $ShortScriptName from $ShortUrl
   if(($FancyUrls) and ($ShortUrl =~ m/$ShortScriptName/)) {
     $ShortUrl =~ s/$ShortScriptName//;
     $Url =~ s/$ShortScriptName//;
-  #} elsif((defined $ENV{'PATH_INFO'})) { #and ($ENV{'PATH_INFO'} ne '/')) {
-  #  $ShortUrl .= "/";
-  #  $Url .= "/";
   } else {
-    $ShortUrl .= "/"; #"?";
-    $Url .= "/"; #"?";
+    $ShortUrl .= "/";
+    $Url .= "/";
   }
 
   # Some cleanup
@@ -121,15 +119,15 @@ sub InitVars {
   # Get page name that is being requested
   $Page = ((defined $ENV{'PATH_INFO'}) and ($ENV{'QUERY_STRING'} eq '')) ? $ENV{'PATH_INFO'} : $ENV{'QUERY_STRING'};
   $Page =~ s/%([a-fA-F0-9][a-fA-F0-9])/pack("C", hex($1))/eg;   # Get "plain"
-  #$Page = $ENV{'QUERY_STRING'};	# Should be the page
-  $Page =~ s/&/;/g;             # Replace ampersand with semicolon
+  $Page =~ s/&/;/g;	# Replace ampersand with semicolon
   $Page =~ s/^\?{1,}//;	# Get rid of leading '?', if it's there.
   if($Page =~ m/=/) {	# We're getting some variables
+    # Read them, split them, add them to %Param
     foreach my $arg (split(/;/,$Page)) {
       my @args = split(/=/,$arg);
       $Param{$args[0]} = $args[1];
     }
-    if(!GetParam('page')) {
+    if(!GetParam('page')) {	# Set Param 'page' if it's not already
       $Param{page} = (GetParam('do',0)) ? GetParam('do') : $Page;
     }
   }
@@ -142,9 +140,7 @@ sub InitVars {
     ReDirect($Url.$Page);
     exit 0;
   }
-  #$Page =~ s/\+/ /g;		# Replace + with space...
   if(GetParam('search',0)) { $Param{search} =~ s/\+/ /g; }
-  #$Page =~ s/%([a-fA-F0-9][a-fA-F0-9])/pack("C", hex($1))/eg;   # Get "plain"
   $Page =~ s!^/!!;		# Remove leading slash, if it exists
   $Page =~ s!\.{2,}!!g;         # Remove every instance of double period
   # Wait! If there's a trailing slash, let's remove and redirect...
@@ -155,32 +151,17 @@ sub InitVars {
     ReDirect($Url.$Page);	# Redirect to the page sans trailing slash
     exit 0;
   }
-  #if($Page =~ m/^?do=(.*?)(;page=(.*)|)$/) { # We're getting a command directive
-  #  $command = $1;		# Set the command
-  #  $Page = $3; #if $2;		# Set the page
-  #  if($Page =~ m/^.*?;(.*)$/) { # If there are still arguments...
-  #    my @tv = split(/;/,$Page);
-  #    $Page = $tv[0]; shift @tv;
-  #    $ArgList = join(";",@tv);
-  #    #$ArgList = (split(/;/,$Page))[1]; # Get them
-  #    #$Page = (split(/;/,$Page))[0]; # Set page properly
-  #  }
-  #  $command =~ s/^\?//;	# Get rid of leading '?', if it's there.
-  #}
   if($Page eq "") { 
     $Page = $DefaultPage;	# Default if blank
-    #ReDirect($Url.$DefaultPage);
-    #exit 0;    
   }
-  $PageName = $Page;		# PageName is ShortPage with spaces
+  $PageName = $Page;		# PageName is Page with spaces
   $PageName =~ s/_/ /g;		# Change underscore to space
 
   $ShortDir = substr($Page,0,1);	# Get first letter
   $ShortDir =~ tr/[a-z]/[A-Z]/;		# Capitalize it
 
-
   # I know we just went through all that crap, but if command=admin, we need:
-  #if($command and $command eq 'admin') {
+  # FIXME: Is this needed anymore?
   if(GetParam('do','') eq 'admin') {
     #$PageName = 'Admin';
     #$ShortPage = '';
@@ -188,7 +169,6 @@ sub InitVars {
   }
 
   # Discuss, edit links
-  #if(!$command) { #or $command ne 'admin') {
   if(!GetParam('do')) {
     if($Page !~ m/^$DiscussPrefix/) {	# Not a discussion page
       $DiscussLink = $ShortUrl . $DiscussPrefix . $Page;
@@ -223,13 +203,8 @@ sub InitVars {
   }
 
   # If we're a command, change the page title
-  #if($command) {
   if(GetParam('do') eq 'search') {
-    #if($command eq 'search') { 
-    #if($Param{do} eq 'search') {
-      #$ArgList = $Page;
-      $PageName = "Search for: ".GetParam('search'); #$Param{search}"; #$PageName";
-    #}
+    $PageName = "Search for: ".GetParam('search');
   }
 
   # Set the TimeStamp
@@ -253,51 +228,24 @@ sub InitVars {
   # Search box
   $SearchBox = SearchForm() unless $SearchBox;  # Search box code
 
-  # For the Admin stuff
-  #%Commands = (			# This is the list of commands, and their subs
-  #  admin => \&DoAdmin,		edit => \&DoEdit,
-  #  search => \&DoSearch,	history => \&DoHistory,
-  #  random => \&DoRandom,	diff => \&DoDiff,
-  #  delete => \&DoDelete,	revision => \&DoRevision,
-  #  revert => \&DoRevert,	spam => \&DoSpam,
-  #  recentchanges => \&DoRecentChanges,
-  #  index => \&DoAdminIndex,
-  #);
-  RegCommand('admin', \&DoAdmin);
-  RegCommand('edit', \&DoEdit);
-  RegCommand('search', \&DoSearch);
-  RegCommand('history', \&DoHistory);
-  RegCommand('random', \&DoRandom);
-  RegCommand('diff', \&DoDiff);
-  RegCommand('delete', \&DoDelete);
-  RegCommand('revision', \&DoRevision);
-  RegCommand('revert', \&DoRevert);
-  RegCommand('spam', \&DoSpam);
-  RegCommand('recentchanges', \&DoRecentChanges);
-  RegCommand('index', \&DoAdminIndex);
+  # Register the built-in commands (?do= directives)
+  RegCommand('admin', \&DoAdmin);	# Administrative menu
+  RegCommand('edit', \&DoEdit);		# Editing screen
+  RegCommand('search', \&DoSearch);	# Search feature
+  RegCommand('history', \&DoHistory);	# Page history
+  RegCommand('random', \&DoRandom);	# Random page
+  RegCommand('diff', \&DoDiff);		# Differences between revisions
+  RegCommand('delete', \&DoDelete);	# Page deletion
+  RegCommand('revision', \&DoRevision);	# Show a previous page version
+  RegCommand('revert', \&DoRevert);	# Revert a page to a previous version
+  RegCommand('spam', \&DoSpam);		# For spam submissions
+  RegCommand('recentchanges', \&DoRecentChanges); # Just in case...
+  RegCommand('index', \&DoAdminIndex);	# Index of all pages
+
+  # Now register the admin actions (?do=admin;page= directives)
   # 'password' has to be set by itself, since technically there isn't a menu
   #  item for it in the %AdminList (it's hard coded)
   $AdminActions{'password'} = \&DoAdminPassword;
-  #%AdminActions = (		# List of admin actions, and their subs
-  #  password => \&DoAdminPassword,	version => \&DoAdminVersion,
-  #  index => \&DoAdminIndex,		reindex => \&DoAdminReIndex,
-  #  rmlocks => \&DoAdminRemoveLocks,	visitors => \&DoAdminListVisitors,
-  #  lock => \&DoAdminLock,		unlock => \&DoAdminUnlock,
-  #  block => \&DoAdminBlock,		clearvisits => \&DoAdminClearVisits,
-  #  bannedcontent => \&DoAdminBannedContent,
-  #);
-  #%AdminList = (		# For the Admin menu
-  #  version => 'View version information',
-  #  index => 'List all pages',
-  #  reindex => 'Rebuild page index',
-  #  rmlocks => 'Force delete page locks',
-  #  visitors => 'Display visitor log',
-  #  clearvisits => 'Clear visitor log',
-  #  lock => 'Lock the site for editing/discussions',
-  #  unlock => 'Unlock the site',
-  #  block => 'Block users',
-  #  bannedcontent => 'Ban certain types of content',
-  #);
   RegAdminPage('version', 'View version information', \&DoAdminVersion);
   RegAdminPage('index', 'List all pages', \&DoAdminIndex);
   RegAdminPage('reindex', 'Rebuild page index', \&DoAdminReIndex);
@@ -309,28 +257,24 @@ sub InitVars {
   RegAdminPage('block', 'Block users', \&DoAdminBlock);
   RegAdminPage('bannedcontent', 'Ban certain types of content',
    \&DoAdminBannedContent);
-  # Posting actions
-  #%PostingActions = (
-  #  login => \&DoPostingLogin,		editing => \&DoPostingEditing,
-  #  discuss => \&DoPostingDiscuss,	blocklist => \&DoPostingBlockList,
-  #  commenting => \&DoPostingSpam,  bannedcontent => \&DoPostingBannedContent,
-  #);
-  RegPostAction('login', \&DoPostingLogin);
-  RegPostAction('editing', \&DoPostingEditing);
-  RegPostAction('discuss', \&DoPostingDiscuss);
-  RegPostAction('blocklist', \&DoPostingBlockList);
-  RegPostAction('commenting', \&DoPostingSpam);
-  RegPostAction('bannedcontent', \&DoPostingBannedContent);
 
-  # Maintenance actions
+  # Register POSTing actions
+  RegPostAction('login', \&DoPostingLogin);		# Login
+  RegPostAction('editing', \&DoPostingEditing);		# Editing
+  RegPostAction('discuss', \&DoPostingDiscuss);		# Discussions
+  RegPostAction('blocklist', \&DoPostingBlockList);	# Block list
+  RegPostAction('commenting', \&DoPostingSpam);		# Spam submissions
+  RegPostAction('bannedcontent', \&DoPostingBannedContent); # Banned content
+
+  # Maintenance actions FIXME: No fancy Reg* sub (yet)
   %MaintActions = (
     purgerc => \&DoMaintPurgeRC,	purgetemp => \&DoMaintPurgeTemp,
     purgeoldr => \&DoMaintPurgeOldRevs, trimvisit => \&DoMaintTrimVisit,
   );
 
-  # Special Pages
-  RegSpecialPage('RecentChanges', \&DoRecentChanges);
-  RegSpecialPage("$DiscussPrefix*", \&DoDiscuss);
+  # Register the "Special Pages"
+  RegSpecialPage('RecentChanges', \&DoRecentChanges);	# Recent Changes
+  RegSpecialPage("$DiscussPrefix*", \&DoDiscuss);	# Discussion pages
 }
 
 sub InitTemplate {
@@ -440,13 +384,6 @@ sub Markup {
     $line =~ s#^={3}(.*?)(=*)$#<h3>$1</h3>#;
     $line =~ s#^={2}(.*?)(=*)$#<h2>$1</h2>#;
     $line =~ s#^=(.*?)(=*)$#<h1>$1</h1>#;
-
-    # Links
-    #$line =~ s#\[{2}(htt(p|ps)://.*?)\|(.*?)\]{2}#<a href="$1" class="external" target="_blank" title="External link: $1" rel="nofollow">$3</a>#g;
-    #$line =~ s#\[{2}(htt(p|ps)://.*?)\]{2}#<a href="$1" class="external" target="_blank" title="External link: $1" rel="nofollow">$1</a>#g;
-    #$line =~ s#\[{2}(.*?)\|{1}(.*?)\]{2}#"<a href='".$ShortUrl.ReplaceSpaces($1)."' title='$1'>$2</a>"#eg;
-    #$line =~ s#\[{2}(.*?)\]{2}#"<a href='".$ShortUrl.ReplaceSpaces($1)."' title='$1'>$1</a>"#eg;
-    #$line =~ s#\[{2}(.+?)\]{2}#MarkupBuildLink($1)#eg;
 
     # HR
     $line =~ s#^-{4,}$#<hr/>#;
@@ -891,9 +828,10 @@ sub Index {
   #  FIXME: Replace all the open..close with FileToArray or similar
   my $pg = $Page;
   ($pg) = @_ if @_ >= 1;
-  open(INDEX,"<$DataDir/pageindex") or push @Messages, "Index: Unable to open pageindex for read: $!";
-  my @pagelist = <INDEX>;
-  close(INDEX);
+  #open(INDEX,"<$DataDir/pageindex") or push @Messages, "Index: Unable to open pageindex for read: $!";
+  #my @pagelist = <INDEX>;
+  #close(INDEX);
+  my @pagelist = FileToArray("$DataDir/pageindex");
   if(!grep(/^$pg$/,@pagelist)) {
     open(INDEX,">>$DataDir/pageindex") or push @Messages, "Index: Unable to open pageindex for append: $!";
     print INDEX "$pg\n";
@@ -983,7 +921,7 @@ sub AppendFile {
     $url = $user;
   }
   $sig = '-- [['.$url.'|'.$user.']] //'.
-  (FriendlyTime($TimeStamp))[$TimeZone] . "// ($UserIP)";
+    (FriendlyTime($TimeStamp))[$TimeZone] . "// ($UserIP)";
   $F{text} .= "$sig\n----\n";
   $F{text} =~ s/\r//g;
   StringToFile($T{text}, "$TempDir/old");
@@ -1046,6 +984,7 @@ sub DoAdminVersion {
   print "<p>perl: ".`perl -v`."</p>";
   print "<p>diff: ".`diff --version`."</p>";
   #print "<p>grep: ".`grep --version`."</p>";
+  print "<p>awk: ".`awk --version`."</p>";
 }
 
 sub DoAdminIndex {
@@ -1782,7 +1721,6 @@ sub DoMaint {
 sub StringToFile {
   my ($string, $file) = @_;
   open(FILE,">$file") or push @Messages, "StringToFile: Can't write to $file: $!";
-  # FIXME: Need locks here!
   flock(FILE,LOCK_EX);		# Exclusive lock
   seek(FILE, 0, SEEK_SET);	# Beginning
   print FILE $string;
@@ -2094,6 +2032,24 @@ sub ErrorPage {
   #exit 1;
 }
 
+sub DoSurgeProtection {
+  # We need to check if there have been a large number of requests
+  # If neither of the variables are defined, or if they are 0, get out of here
+  return 0 unless $SurgeProtectionTime or $SurgeProtectionCount;
+  # If the user is an admin, let's go ahead and forgive them
+  return 0 if IsAdmin();
+  # Get the time in the past we're starting to look
+  my $spts = $TimeStamp - $SurgeProtectionTime;
+  # Now, count the elements that match
+  chomp(my @counts = split(/\n/,`grep ^$UserIP $VisitorLog | awk '\$2>$spts'`));
+  if($#counts >= $SurgeProtectionCount) {
+    # Surge protection has been triggered! Give an error page and bug out.
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
 sub DoRequest {
   # Blocked?
   if(IsBlocked()) {
@@ -2103,6 +2059,12 @@ sub DoRequest {
     #  "<h1>Forbidden</h1><p>You've been banned. Please don't come back.</p>".
     #  "</body></html>";
     ErrorPage(403, "You've been banned. Please don't come back.");
+    return;
+  }
+
+  # Surge protection
+  if(DoSurgeProtection()) {
+    ErrorPage('503', "You've attempted to fetch more than $SurgeProtectionCount pages in $SurgeProtectionTime seconds.");
     return;
   }
 
@@ -2359,7 +2321,7 @@ pre { border:0; font-size:10pt; }
 <body>
 <div class="header">
 <div class="navbar">$NavBar</div><br/>
-<h1><a title="Search for references to $Page" rel="nofollow" href="$ShortUrl?do=search;search=$SearchPage">$PageName</a></h1></div>
+<h1><a title="Search for references to $SearchPage" rel="nofollow" href="$ShortUrl?do=search;search=$SearchPage">$PageName</a></h1></div>
 <div class="wrapper">
 !!CONTENT!!
 </div>

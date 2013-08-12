@@ -163,6 +163,16 @@ $FancyUrls = 1;
   'Type the word YES if you are human:' => 'yes',
 );
 
+# $SurgeProtectionTime - This variable controls the number of time, in
+#  seconds, to check the visitor log for visits from the same IP address. The
+#  default is 20 seconds, and should be considered a sane default.
+$SurgeProtectionTime = 20;
+
+# $SurgeProtectionCount - This variable controls the number of hits in the
+#  amount of time defined by $SurgeProtectionTime which will trigger the surge
+#  protection. The default is 20 hits, and should be considered a sane default.
+$SurgeProtectionCount = 20;
+
 # $Header and $Footer - These variables are used in "theming" your site. If
 #  either one is blank, the default theme will be used. You can either fill
 #  the variables with content, or import the contents of a file into each.
