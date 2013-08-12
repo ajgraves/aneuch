@@ -379,11 +379,15 @@ sub Markup {
   # Markup is a cluster. It's so ugly and nasty, but it works. In the future,
   #  this thing will be re-written to be much cleaner.
   my $cont = shift;
+  if($cont =~ m/^#NOWIKI\n/) {
+    $cont =~ s/^#NOWIKI\n//;
+    return $cont;
+  }
   $cont = QuoteHTML($cont);
   my @contents = split("\n", $cont);
 
   # If nomarkup is requested
-  if($contents[0] eq "!! nomarkup") { return @contents; }
+  #if($contents[0] eq "!! nomarkup") { return @contents; }
   my $ulstep = 0;		# FIXME: not used!?
   my $olstep = 0;
   my $openul = 0;		# For building <ul>
@@ -1090,16 +1094,22 @@ sub DoAdminListVisitors {
   # If we're getting 'limit='... (to limit by IP)
   #if($ArgList and $ArgList =~ m/^limit=(.*)$/) {
   if(GetParam('limit',0)) {
-    #m/^limit=(\d+\.\d+\.\d+\.\d+)$/) {
+  #  #m/^limit=(\d+\.\d+\.\d+\.\d+)$/) {
     $lim = GetParam('limit'); #$1;
-    print "Limiting by '$lim', <a href='$ShortUrl?do=admin;page=visitors'>".
-      "remove limit</a>"
-  } else {
+  #  print "Limiting by '$lim', <a href='$ShortUrl?do=admin;page=visitors'>".
+  #    "remove limit</a>"
+  #} else {
+  }
     print '<form method="get"><input type="hidden" name="do" value="admin"/>
       <input type="hidden" name="page" value="visitors"/>
-      <input type="text" name="limit" size="40"/>
-      <input type="submit" value="Limit"/></form>';
+      <input type="text" name="limit" size="40" value="'.$lim.'" />
+      <input type="submit" value="Limit"/>';
+  #}
+  if($lim) {
+    print " <a href='$ShortUrl?do=".GetParam('do','admin').
+      ";page=".GetParam('page','visitors')."'>Remove</a>";
   }
+  print "</form>";
   # Display the visitors.log file
   my @lf = FileToArray($VisitorLog);
   @lf = reverse(@lf);	# Most recent entries are on bottom... fix that.
