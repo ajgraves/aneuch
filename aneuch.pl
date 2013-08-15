@@ -142,6 +142,7 @@ sub InitVars {
   }
   if(GetParam('search',0)) { $Param{search} =~ s/\+/ /g; }
   $Page =~ s!^/!!;		# Remove leading slash, if it exists
+  $Page =~ s/^\.+//g;		# Remove leading periods
   $Page =~ s!\.{2,}!!g;         # Remove every instance of double period
   # Wait! If there's a trailing slash, let's remove and redirect...
   if($Page =~ m!/$!) {
@@ -893,10 +894,24 @@ sub WriteFile {
   LogRecent($file,$user,$FORM{summary});
 }
 
+sub GetSignature {
+  my ($author, $url) = @_;
+  my $ret = '-- ';
+  if(!$url) {
+    if(PageExists(ReplaceSpaces($author))) {
+      $ret .= "[[$author|$author]] //";
+    } else {
+      $ret .= "$author //";
+    }
+  } else {
+    $ret .= "[[$url|$author]] //";
+  }
+  return $ret . (FriendlyTime($TimeStamp))[$TimeZone] . "// ($UserIP)\n----\n";
+}
+
 sub AppendFile {
   my ($file, $content, $user, $url) = @_;
   DoArchive($file);				# Keep history
-  my $sig;
   $content =~ s/\r//g;
   #$content =~ s/\n/\n\t/g;
   if(!$user) { $user = $UserIP; }
@@ -917,12 +932,7 @@ sub AppendFile {
   }
   $F{revision} = $T{revision} + 1;
   $F{text} = $T{text} . "\n" . $content . "\n\n";
-  if(!$url) {
-    $url = $user;
-  }
-  $sig = '-- [['.$url.'|'.$user.']] //'.
-    (FriendlyTime($TimeStamp))[$TimeZone] . "// ($UserIP)";
-  $F{text} .= "$sig\n----\n";
+  $F{text} .= GetSignature($user, $url);
   $F{text} =~ s/\r//g;
   StringToFile($T{text}, "$TempDir/old");
   StringToFile($F{text}, "$TempDir/new");
@@ -1042,7 +1052,7 @@ sub DoAdminListVisitors {
     print '<form method="get"><input type="hidden" name="do" value="admin"/>
       <input type="hidden" name="page" value="visitors"/>
       <input type="text" name="limit" size="40" value="'.$lim.'" />
-      <input type="submit" value="Limit"/>';
+      <input type="submit" value="Search"/>';
   #}
   if($lim) {
     print " <a href='$ShortUrl?do=".GetParam('do','admin').
@@ -1292,23 +1302,34 @@ sub PassesSpamCheck {
 
 sub DoDiscuss {
   # Displays the discussion form
+  my $newtext = $NewComment;
   #my @returndiscuss = ();
   if(!CanDiscuss()) {
     return;
+  }
+  # Check if a preview exists
+  if(-f "$TempDir/$Page.$UserIP") {
+    # If the preview is older than 10 seconds, remove it and don't display it
+    if((stat("$TempDir/$Page.$UserIP"))[9] < ($TimeStamp - 10)) {
+      unlink "$TempDir/$Page.$UserIP";
+    } else {
+      $newtext = FileToString("$TempDir/$Page.$UserIP");
+      print "<div class=\"preview\">".Markup($newtext)."</div>";
+    }
   }
   RedHerringForm();
   print "<p></p><form action='$ScriptName' method='post'>
     <input type='hidden' name='doing' value='discuss' />
     <input type='hidden' name='file' value='$Page' />
     <textarea name='text' style='width:100%;' 
-    onfocus=\"if(this.value==this.defaultValue)this.value='';\"
-    onblur=\"if(this.value=='')this.value=this.defaultValue;\"
-    cols='80' rows='10'>$NewComment</textarea><br/>
+    onfocus=\"if(this.value=='$NewComment')this.value='';\"
+    onblur=\"if(this.value=='')this.value='$NewComment';\"
+    cols='80' rows='10'>$newtext</textarea><br/>
     Name: <input type='text' name='uname' size='30' value='$UserName' /> 
     URL (optional): <input type='text' name='url' size='50' />";
   AntiSpam();
-  print "<input type='submit' value='Save' />
-    </form>";
+  print "<input type='submit' name='whattodo' value='Save' />
+    <input type='submit' name='whattodo' value='Preview' /></form>";
 }
 
 sub DoRecentChanges {
@@ -1365,6 +1386,10 @@ sub DoSearch {
   @files = sort {(stat($b))[9] <=> (stat($a))[9]} @files;
   #my $search = $ArgList;
   my $search = GetParam('search','');
+  if($search eq '') {
+    print "<p>What in the world are you searching for!?</p>";
+    return;
+  }
   my $altsearch = $search; $altsearch =~ s/ /_/g;
   my %result;
   print "<p>Search results for &quot;$search&quot;</p>";
@@ -1407,10 +1432,10 @@ sub SearchForm {
   my $ret;
   #$ret = "<form enctype=\"multipart/form-data\" class='searchform' ".
   #  "action='$ScriptName' method='get'>";
-  $ret = "<form class='searchform' action='$ShortUrl' method='get'>";
-  $ret .= "<input type='hidden' name='do' value='search' />";
-  $ret .= "<input type='text' name='search' size='40' />";
-  $ret .= " <input type='submit' value='Search' /></form>";
+  $ret = "<form class='searchform' action='$ShortUrl' method='get'>".
+    "<input type='hidden' name='do' value='search' />".
+    "<input type='text' name='search' size='40' />".
+    " <input type='submit' value='Search' /></form>";
   return $ret;
 }
 
@@ -1586,7 +1611,16 @@ sub DoPostingEditing {
 sub DoPostingDiscuss {
   if(CanDiscuss()) {
     if(PassesSpamCheck()) {
-      AppendFile($FORM{'file'}, $FORM{'text'}, $FORM{'uname'}, $FORM{'url'});
+      if($FORM{'whattodo'} eq "Save") {
+	if(-f "$TempDir/$FORM{'file'}.$UserIP") {
+	  unlink "$TempDir/$FORM{'file'}.$UserIP";
+	}
+	AppendFile($FORM{'file'}, $FORM{'text'}, $FORM{'uname'}, $FORM{'url'});
+      } elsif($FORM{'whattodo'} eq "Preview") {
+	StringToFile($FORM{'text'}."\n\n".GetSignature($FORM{'uname'}, $FORM{'url'}), "$TempDir/$FORM{'file'}.$UserIP");
+      } else {
+	# What!?
+      }
     } else {
       DoPostingSpam();
     }
@@ -1610,6 +1644,10 @@ sub DoPostingBannedContent {
 
 sub DoPosting {
   my $action = $FORM{doing};
+  # Remove all slashes from file name (if any)
+  $FORM{'file'} =~ s!/!!g;
+  # Remove any leading periods
+  $FORM{'file'} =~ s/^\.+//g;
   $Page = $FORM{'file'};
   if($action and $PostingActions{$action}) {	# Does it exist?
     &{$PostingActions{$action}};		# Run it
@@ -1857,8 +1895,9 @@ sub DoRandom {
     $count = 1;
   }
   my $randompage = int(rand($count));
-  print '<script language="javascript" type="text/javascript">'.
-    'window.location.href="'.$ShortUrl.$files[$randompage].'"; </script>';
+  #print '<script language="javascript" type="text/javascript">'.
+  #  'window.location.href="'.$ShortUrl.$files[$randompage].'"; </script>';
+  ReDirect($Url.$files[$randompage]);
 }
 
 sub PageExists {
@@ -2071,6 +2110,12 @@ sub DoRequest {
   # Are we receiving something?
   if(ReadIn()) {
     DoPosting();
+    return;
+  }
+
+  # Random page? Do it!
+  if(GetParam('do') eq 'random') {
+    DoRandom();
     return;
   }
 
@@ -2322,7 +2367,7 @@ pre { border:0; font-size:10pt; }
 <div class="header">
 <div class="navbar">$NavBar</div><br/>
 <h1><a title="Search for references to $SearchPage" rel="nofollow" href="$ShortUrl?do=search;search=$SearchPage">$PageName</a></h1></div>
-<div class="wrapper">
+<div class="wrapper" ondblclick="window.location.href='$Url?do=edit;page=$Page'">
 !!CONTENT!!
 </div>
 <div class="close"></div>
