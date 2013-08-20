@@ -45,7 +45,7 @@ $RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog
 @NavBarPages $BlockedList %PostingActions $HTTPStatus $PurgeRC %MaintActions
 $PurgeArchives $SearchPage $SearchBox $TemplateDir $Template $FancyUrls
 %QuestionAnswer $BannedContent %Param %SpecialPages $SurgeProtectionTime
-$SurgeProtectionCount);
+$SurgeProtectionCount @PostInitSubs $EditorLicenseText);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
@@ -253,8 +253,9 @@ sub InitVars {
   RegAdminPage('rmlocks', 'Force delete page locks', \&DoAdminRemoveLocks);
   RegAdminPage('visitors', 'Display visitor log', \&DoAdminListVisitors);
   RegAdminPage('clearvisits', 'Clear visitor log', \&DoAdminClearVisits);
-  RegAdminPage('lock', 'Lock the site for editing/discussions', \&DoAdminLock);
-  RegAdminPage('unlock', 'Unlock the site', \&DoAdminUnlock);
+  RegAdminPage('lock',
+    (-f "$DataDir/lock") ? 'Unlock the site' : 'Lock the site', \&DoAdminLock);
+  #RegAdminPage('unlock', 'Unlock the site', \&DoAdminUnlock);
   RegAdminPage('block', 'Block users', \&DoAdminBlock);
   RegAdminPage('bannedcontent', 'Ban certain types of content',
    \&DoAdminBannedContent);
@@ -275,7 +276,16 @@ sub InitVars {
 
   # Register the "Special Pages"
   RegSpecialPage('RecentChanges', \&DoRecentChanges);	# Recent Changes
-  RegSpecialPage("$DiscussPrefix*", \&DoDiscuss);	# Discussion pages
+  RegSpecialPage("$DiscussPrefix.*", \&DoDiscuss);	# Discussion pages
+}
+
+sub DoPostInit {
+  # Runs any subs that want to be called at the tail end of Init()
+  if(@PostInitSubs) {
+    foreach my $SubToRun (@PostInitSubs) {
+      &{$SubToRun};
+    }
+  }
 }
 
 sub InitTemplate {
@@ -286,6 +296,34 @@ sub InitTemplate {
   } else {
     $Header = FileToString("$TemplateDir/$Template/head.html");
     $Footer = FileToString("$TemplateDir/$Template/foot.html");
+  }
+}
+
+sub DoHeader {
+  if(!$Template or !-d "$TemplateDir/$Template") {
+    chomp(my @TEMPLATE = <DATA>);
+    ($Header, $Footer) = split("!!CONTENT!!", join("\n", @TEMPLATE));
+    print Interpolate($Header);
+  } else {
+    if(-f "$TemplateDir/$Template/head.pl") {
+      do "$TemplateDir/$Template/head.pl";
+    } elsif(-f "$TemplateDir/$Template/head.html") {
+      print Interpolate(FileToString("$TemplateDir/$Template/head.html"));
+    }
+  }
+}
+
+sub DoFooter {
+  if(!$Template or !-d "$TemplateDir/$Template") {
+    #chomp(my @TEMPLATE = <DATA>);
+    #print Interpolate((split(/!!CONTENT!!/, join("\n", @TEMPLATE)))[1]);
+    print Interpolate($Footer);
+  } else {
+    if(-f "$TemplateDir/$Template/foot.pl") {
+      do "$TemplateDir/$Template/foot.pl";
+    } elsif(-f "$TemplateDir/$Template/foot.html") {
+      print Interpolate(FileToString("$TemplateDir/$Template/foot.html"));
+    }
   }
 }
 
@@ -376,15 +414,19 @@ sub Markup {
     # Get rid of comments
     #$line =~ s/^#//;
 
+    # Signature
+    #$line =~ s/~{4}/GetSignature((ReadCookie())[0])/eg;
+    $line =~ s/~{4}/GetSignature($UserName)/eg;
+
     # Forced line breaks
     $line =~ s#\\\\#<br/>#g;
 
     # Headers
-    $line =~ s#^={5}(.*?)(=*)$#<h5>$1</h5>#;
-    $line =~ s#^={4}(.*?)(=*)$#<h4>$1</h4>#;
-    $line =~ s#^={3}(.*?)(=*)$#<h3>$1</h3>#;
-    $line =~ s#^={2}(.*?)(=*)$#<h2>$1</h2>#;
-    $line =~ s#^=(.*?)(=*)$#<h1>$1</h1>#;
+    #$line =~ s#^={5}(.*?)(=*)$#<h5>$1</h5>#;
+    #$line =~ s#^={4}(.*?)(=*)$#<h4>$1</h4>#;
+    #$line =~ s#^={3}(.*?)(=*)$#<h3>$1</h3>#;
+    #$line =~ s#^={2}(.*?)(=*)$#"<h2 id=".ReplaceSpaces($1).">$1</h2>"#e;
+    $line =~ s#^(={1,5})(.*?)(=*)$#"<h".length($1)." id='".ReplaceSpaces(StripMarkup($2))."'>$2</h".length($1).">"#e;
 
     # HR
     $line =~ s#^-{4,}$#<hr/>#;
@@ -466,6 +508,26 @@ sub Markup {
   return "<!-- start of Aneuch markup -->\n".$returnout."\n<!-- end of Aneuch markup -->\n";
 }
 
+sub MarkupHelp {
+  # This sub will be called at the end of the edit form, and provides 
+  #  assistance to the users for markup
+  print '<div id="markup-help"><dl>'.
+    '<dt>Styling</dt><dd>**<strong>bold</strong>**, '.
+    '//<em>italic</em>//, __<span style="text-decoration:underline">'.
+    'underline</span>__, --<del>strikethrough</del>--, '.
+    '`<tt>teletype</tt>`</dd>'.
+    '<dt>Headers</dt><dd>= Level 1 =, == Level 2 ==, === Level 3 ===, '.
+    "==== Level 4 ====, ===== Level 5 ===== (ending ='s optional)</dd>".
+    '<dt>Lists</dt><dd>* Unordered List, # Ordered List, ** Level 2 unordered,'.
+    ' ### Level 3 ordered (up to 5 levels, NO SPACES IN FRONT)</dd>'.
+    '<dt>Links</dt><dd>[[Page]], [[Page|description]], [[http://link]], '.
+    '[[http://link|description]]</dd>'.
+    '<dt>Images</dt><dd>{{image.jpg}}, {{right:image.jpg}} (right aligned), '.
+    '[[link|{{image.jpg}}]] (image linked to link), '.
+    '{{image.jpg|alt text}}</dd>'.
+    '<dt>Extras</dt><dd>---- (horizonal rule), ~~~~ (signature)</dd></div>';
+}
+
 sub Trim {
   # Trim removes all leading and trailing whitespace
   my $string = shift;
@@ -480,6 +542,11 @@ sub Interpolate {
   my $work = shift;
   $work =~ s/(\$\w+(?:::)?\w*)/"defined $1 ? $1 : ''"/gee;
   return $work;
+}
+
+sub RegPostInitSub {
+  my $Sub = shift;
+  push @PostInitSubs, $Sub;
 }
 
 sub RegSpecialPage {
@@ -498,10 +565,18 @@ sub UnregSpecialPage {
   }
 }
 
+sub IsSpecialPage {
+  # Determines of the current requested page is a special page
+  foreach my $spage (sort keys %SpecialPages) {
+    if($Page =~ m/^$spage$/) { return 1; }
+  }
+  return 0;
+}
+
 sub DoSpecialPage {
   #if(exists $SpecialPages{$Page} and defined $SpecialPages{$Page}) {
-  foreach my $spage (sort keys %SpecialPages) { 
-    if($Page =~ m/$spage/) { &{$SpecialPages{$spage}}; return; }
+  foreach my $spage (sort keys %SpecialPages) {
+    if($Page =~ m/^$spage$/) { &{$SpecialPages{$spage}}; return; }
   }
 }
 
@@ -576,8 +651,8 @@ sub GetParam {
   }
 }
 
-sub GetFile {
-  # GetFile will read the file into a hash, and return it.
+sub GetPage {
+  # GetPage will read the file into a hash, and return it.
   my $file = shift;
   my @return;		# This used to be the return data, now it's used to
 			#  read in the file.
@@ -746,7 +821,7 @@ sub DoEdit {
     $contents = join("\n", @preview);
     RefreshLock();
   } else {
-    my %f = GetFile("$PageDir/$ShortDir/$Page");
+    my %f = GetPage("$PageDir/$ShortDir/$Page");
     chomp($contents = $f{text});
     $revision = $f{revision} if defined $f{revision};
     $revision = 0 unless $revision;
@@ -770,8 +845,9 @@ sub DoEdit {
     # Set a lock
     if(@preview or SetLock()) {
       #print 'Summary: <input type="text" name="summary" size="60" />';
-      print 'Summary:<br/><textarea name="summary" cols="100" rows="2"
-	style="width:100%"></textarea><br/>';
+      print '<br/>Summary:<br/><textarea name="summary" cols="100" rows="2"'.
+      'style="width:100%" placeholder="Edit summary (required)"></textarea>'.
+      '<br/><br/>';
       print ' User name: <input type="text" name="uname" size="30" value="'.$UserName.'" /> ';
       print ' <a rel="nofollow" href="'.$ShortUrl.'?do=delete;page='.$Page.'">'.
 	'Delete Page</a> ';
@@ -781,6 +857,10 @@ sub DoEdit {
       print '<input type="submit" name="whattodo" value="Cancel" />';
     }
     print '</form>';
+    if($EditorLicenseText) {
+      print "<p>$EditorLicenseText</p>";
+    }
+    MarkupHelp();
   }
 }
 
@@ -847,12 +927,12 @@ sub DoArchive {
   if(!-f "$PageDir/$archive/$file") { return; }
   # If $archive doesn't exist, we'd better create it...
   if(! -d "$ArchiveDir/$archive") { mkdir "$ArchiveDir/$archive"; }
-  my %F = GetFile("$PageDir/$archive/$file");
+  my %F = GetPage("$PageDir/$archive/$file");
   # Now copy...
   system("cp $PageDir/$archive/$file $ArchiveDir/$archive/$file.$F{revision}");
 }
 
-sub WriteFile {
+sub WritePage {
   my ($file, $content, $user) = @_;
   if(-f "$TempDir/$file.$UserName") {	# Remove preview files
     unlink "$TempDir/$file.$UserName";
@@ -867,7 +947,7 @@ sub WriteFile {
   $content =~ s/\r//g;
   StringToFile($content, "$TempDir/new");
   $content =~ s/\n/\n\t/g;
-  my %T = GetFile("$PageDir/$archive/$file");
+  my %T = GetPage("$PageDir/$archive/$file");
   StringToFile($T{text}, "$TempDir/old");
   my $diff = `diff $TempDir/old $TempDir/new`;
   $diff =~ s/\\ No newline.*\n//g;
@@ -906,10 +986,14 @@ sub GetSignature {
   } else {
     $ret .= "[[$url|$author]] //";
   }
-  return $ret . (FriendlyTime($TimeStamp))[$TimeZone] . "// ($UserIP)\n----\n";
+  return $ret . (FriendlyTime($TimeStamp))[$TimeZone] . "// ($UserIP)";
 }
 
-sub AppendFile {
+sub GetDiscussionSeparator {
+  return "\n----\n";
+}
+
+sub AppendPage {
   my ($file, $content, $user, $url) = @_;
   DoArchive($file);				# Keep history
   $content =~ s/\r//g;
@@ -925,14 +1009,14 @@ sub AppendFile {
   my $archive = substr($file,0,1); $archive =~ tr/[a-z]/[A-Z]/;
   if(!-d "$PageDir/$archive") { mkdir "$PageDir/$archive"; }
   if(-f "$PageDir/$archive/$file") {
-    %T = GetFile("$PageDir/$archive/$file");
+    %T = GetPage("$PageDir/$archive/$file");
   } else {
     $T{revision} = 0;
     $T{text} = '';
   }
   $F{revision} = $T{revision} + 1;
   $F{text} = $T{text} . "\n" . $content . "\n\n";
-  $F{text} .= GetSignature($user, $url);
+  $F{text} .= GetSignature($user, $url).GetDiscussionSeparator();
   $F{text} =~ s/\r//g;
   StringToFile($T{text}, "$TempDir/old");
   StringToFile($F{text}, "$TempDir/new");
@@ -940,7 +1024,7 @@ sub AppendFile {
   $diff =~ s/\\ No newline.*\n//g;
   $F{diff} = $diff;
   s/\n/\n\t/g for ($F{text}, $F{diff});
-  open(FILE, ">$PageDir/$archive/$file") or push @Messages, "AppendFile: Unable to append to $file: $!";
+  open(FILE, ">$PageDir/$archive/$file") or push @Messages, "AppendPage: Unable to append to $file: $!";
   # FIXME: Need locks here!
   foreach my $key (sort keys %F) {
     print FILE "$key: " . $F{$key} . "\n";
@@ -1135,7 +1219,11 @@ sub DoAdminLock {
     close(LOCKFILE);
     print "Site is locked.";
   } else {
-    print "Site is already locked!";
+    if(unlink "$DataDir/lock") {
+      print "Site has been unlocked.";
+    } else {
+      print "Error while attempting to unlock the site: $!";
+    }
   }
 }
 
@@ -1151,7 +1239,7 @@ sub DoAdminUnlock {
 sub DoAdminBlock {
   my $blocked = FileToString($BlockedList);
   my @bl = split(/\n/,$blocked);
-  print "<p>".scalar @bl." user(s) blocked. Add an IP address, one per line, ".
+  print "<p>".scalar(grep { length($_) and $_ !~ /^#/ } @bl)." user(s) blocked. Add an IP address, one per line, ".
     "that you wish to block. Regular expressions are allowed (be careful!). ".
     "Lines that begin with '#' are considered comments and ignored.</p>";
   print "<form action='$ScriptName' method='post'>".
@@ -1220,8 +1308,9 @@ sub Init {
   InitConfig();
   InitVars();
   #InitDirs();		# Now called inside InitVars();
+  DoPostInit();
   LoadPlugins();
-  InitTemplate();
+  #InitTemplate();
 }
 
 sub RedHerringForm {
@@ -1302,7 +1391,7 @@ sub PassesSpamCheck {
 
 sub DoDiscuss {
   # Displays the discussion form
-  my $newtext = $NewComment;
+  my $newtext;# = $NewComment;
   #my @returndiscuss = ();
   if(!CanDiscuss()) {
     return;
@@ -1315,20 +1404,22 @@ sub DoDiscuss {
     } else {
       $newtext = FileToString("$TempDir/$Page.$UserIP");
       print "<div class=\"preview\">".Markup($newtext)."</div>";
+      my @ta = split(/\n\n/,$newtext); pop @ta;
+      $newtext = join("\n\n", @ta);
     }
   }
   RedHerringForm();
   print "<p></p><form action='$ScriptName' method='post'>
     <input type='hidden' name='doing' value='discuss' />
     <input type='hidden' name='file' value='$Page' />
-    <textarea name='text' style='width:100%;' 
-    onfocus=\"if(this.value=='$NewComment')this.value='';\"
-    onblur=\"if(this.value=='')this.value='$NewComment';\"
-    cols='80' rows='10'>$newtext</textarea><br/>
+    <textarea name='text' style='width:100%;' placeholder='$NewComment'"; 
+    #onfocus=\"if(this.value=='$NewComment')this.value='';\"
+    #onblur=\"if(this.value=='')this.value='$NewComment';\"
+    print" cols='80' rows='10'>$newtext</textarea><br/><br/>
     Name: <input type='text' name='uname' size='30' value='$UserName' /> 
     URL (optional): <input type='text' name='url' size='50' />";
   AntiSpam();
-  print "<input type='submit' name='whattodo' value='Save' />
+  print " <input type='submit' name='whattodo' value='Save' />
     <input type='submit' name='whattodo' value='Preview' /></form>";
 }
 
@@ -1371,9 +1462,13 @@ sub DoRecentChanges {
     #  "'>diff</a>, ".
       "<a href='$ShortUrl?do=history;page=$ent[1]".
       "'>history</a>) ";
-    print "<a href='$ShortUrl$ent[1]'>$ent[1]</a> . . . . ".
-      "<a href='$ShortUrl$ent[2]'>$ent[2]</a><br/>".
-      QuoteHTML($ent[3])."</li>";
+    print "<a href='$ShortUrl$ent[1]'>$ent[1]</a> . . . . ";
+    if(PageExists(ReplaceSpaces($ent[2]))) {
+      print "<a href='$ShortUrl$ent[2]'>$ent[2]</a><br/>";
+    } else {
+      print "$ent[2]<br/>";
+    }
+    print QuoteHTML($ent[3])."</li>";
   }
 }
 
@@ -1398,7 +1493,7 @@ sub DoSearch {
     my $linkedtopage;
     my $matchcount;
     $fn =~ s#^$PageDir/.*?/##;
-    my %F = GetFile($file);
+    my %F = GetPage($file);
     if($fn =~ m/.*?($search|$altsearch).*?/i) {
       $linkedtopage = 1;
       $result{$fn} = '<small>Last modified '.
@@ -1434,8 +1529,11 @@ sub SearchForm {
   #  "action='$ScriptName' method='get'>";
   $ret = "<form class='searchform' action='$ShortUrl' method='get'>".
     "<input type='hidden' name='do' value='search' />".
-    "<input type='text' name='search' size='40' />".
-    " <input type='submit' value='Search' /></form>";
+    "<input type='text' name='search' size='40' placeholder='Search' ";
+  if(GetParam('search')) {
+    $ret .= "value='".GetParam('search')."' ";
+  }
+  $ret .= "/> <input type='submit' value='Search' /></form>";
   return $ret;
 }
 
@@ -1482,7 +1580,7 @@ sub DoHistory {
   my $author; my $summary; my %f;
   my $topone = " checked";
   if(-f "$PageDir/$ShortDir/$Page") {
-    %f = GetFile("$PageDir/$ShortDir/$Page");
+    %f = GetPage("$PageDir/$ShortDir/$Page");
     my $currentday = YMD($f{ts});
     #print "<form action='$ScriptName' method='get'>";
     print "<form action='$ShortUrl' method='get'>";
@@ -1497,8 +1595,12 @@ sub DoHistory {
     #if($f{revision} > 1) {
     #  print " (<a href='$ShortUrl?do=diff;page=$Page'>diff</a>)";
     #}
-    print " . . . . <a href=\"$ShortUrl" . QuoteHTML($f{author}) . "\">".
-      QuoteHTML($f{author}) . "</a>";
+    if(PageExists(ReplaceSpaces($f{author}))) {
+      print " . . . . <a href=\"$ShortUrl" . QuoteHTML($f{author}) . "\">".
+        QuoteHTML($f{author}) . "</a>";
+    } else {
+      print " . . . . ".QuoteHTML($f{author});
+    }
     print " &ndash; " . QuoteHTML($f{summary}) . "</td></tr>";
 
     if($ArchiveDir and $ShortDir and -d "$ArchiveDir/$ShortDir") {
@@ -1507,7 +1609,7 @@ sub DoHistory {
       #  laid out (file.x, file.xx, etc).
       @history = sort { -M $a <=> -M $b } @history;
       foreach my $c (@history) {
-	%f = GetFile($c);
+	%f = GetPage($c);
 	my $nextrev;
         my $day = YMD($f{ts});
         if($day ne $currentday) {
@@ -1532,14 +1634,18 @@ sub DoHistory {
  	#  print " (<a href='$ShortUrl?do=diff;page=$Page;$nextrev'>".
 	#    "diff</a>)";
 	#}
-	print " . . . . <a href=\"$ShortUrl" . QuoteHTML($f{author}) . "\">".
-	  QuoteHTML($f{author}) . "</a>";
+	if(PageExists(QuoteHTML($f{author}))) {
+	  print " . . . . <a href=\"$ShortUrl" . QuoteHTML($f{author}) . "\">".
+	    QuoteHTML($f{author}) . "</a>";
+	} else {
+	  print " . . . . ".QuoteHTML($f{author});
+	}
         print " &ndash; " . QuoteHTML($f{summary}) . "</td></tr>";
       }
     }
     print "</table><input type='submit' value='Compare'></form>";
   } else {
-    print "<p>This page does not appear to have a history. How strange.</p>";
+    print "<p>No log entries found.</p>";
   }
 }
 
@@ -1594,7 +1700,7 @@ sub DoPostingEditing {
       $redir = 1;
     } else {
       if(PassesSpamCheck()) {
-	WriteFile($FORM{'file'}, $FORM{'text'}, $FORM{'uname'});
+	WritePage($FORM{'file'}, $FORM{'text'}, $FORM{'uname'});
       } else {
         DoPostingSpam();
         return;
@@ -1615,9 +1721,9 @@ sub DoPostingDiscuss {
 	if(-f "$TempDir/$FORM{'file'}.$UserIP") {
 	  unlink "$TempDir/$FORM{'file'}.$UserIP";
 	}
-	AppendFile($FORM{'file'}, $FORM{'text'}, $FORM{'uname'}, $FORM{'url'});
+	AppendPage($FORM{'file'}, $FORM{'text'}, $FORM{'uname'}, $FORM{'url'});
       } elsif($FORM{'whattodo'} eq "Preview") {
-	StringToFile($FORM{'text'}."\n\n".GetSignature($FORM{'uname'}, $FORM{'url'}), "$TempDir/$FORM{'file'}.$UserIP");
+	StringToFile($FORM{'text'}."\n\n".GetSignature($FORM{'uname'}, $FORM{'url'}).GetDiscussionSeparator(), "$TempDir/$FORM{'file'}.$UserIP");
       } else {
 	# What!?
       }
@@ -1625,7 +1731,7 @@ sub DoPostingDiscuss {
       DoPostingSpam();
     }
   }
-  ReDirect($Url.$FORM{'file'});
+  ReDirect($Url.$FORM{'file'}."#bottom");
 }
 
 sub DoPostingBlockList {
@@ -1726,7 +1832,7 @@ sub DoMaintPurgeOldRevs {
   # Walk through each file and remove if it's older...
   foreach my $f (@files) {
     if((stat("$f"))[9] <= $RemoveTime) { unlink $f; }
-    #my %fc = GetFile($f);
+    #my %fc = GetPage($f);
     #if($fc{ts} <= $RemoveTime) { unlink $f; }
   }
 }
@@ -1788,12 +1894,12 @@ sub FileToArray {
 
 sub GetDiff {
   my ($old, $new) = @_;
-  my %OldFile = GetFile("$ArchiveDir/$ShortDir/$old");
+  my %OldFile = GetPage("$ArchiveDir/$ShortDir/$old");
   my %NewFile;
   if(($new =~ m/\.\d+$/) and (-f "$ArchiveDir/$ShortDir/$new")) {
-    %NewFile = GetFile("$ArchiveDir/$ShortDir/$new");
+    %NewFile = GetPage("$ArchiveDir/$ShortDir/$new");
   } else {
-    %NewFile = GetFile("$PageDir/$ShortDir/$new");
+    %NewFile = GetPage("$PageDir/$ShortDir/$new");
   }
   # Write them out
   StringToFile($OldFile{text}, "$TempDir/old");
@@ -1838,7 +1944,7 @@ sub DoDiff {
   # If there are no more arguments, assume we want most recent diff
   #if(!$ArgList) {
   if(!GetParam('v1') and !GetParam('v2')) {
-    my %F = GetFile("$PageDir/$ShortDir/$Page");
+    my %F = GetPage("$PageDir/$ShortDir/$Page");
     print "Showing changes to the most recent revision";
     print HTMLDiff($F{diff});
     print "<hr/>";
@@ -1874,9 +1980,9 @@ sub DoDiff {
       print HTMLDiff(GetDiff($oldrev, $newrev));
       print "<hr/>";
       if(($newrev =~ m/\.\d+$/) and (-f "$ArchiveDir/$ShortDir/$newrev")) {
-	%F = GetFile("$ArchiveDir/$ShortDir/$newrev");
+	%F = GetPage("$ArchiveDir/$ShortDir/$newrev");
       } else {
-	%F = GetFile("$PageDir/$ShortDir/$newrev");
+	%F = GetPage("$PageDir/$ShortDir/$newrev");
       }
       if(defined &Markup) {
 	print Markup($F{text});
@@ -1915,7 +2021,7 @@ sub DiscussCount {
   # Returns the number of comments on a Discuss page
   if(PageExists("${DiscussPrefix}${Page}")) {
     my $DShortDir = substr($DiscussPrefix,0,1); $DShortDir =~ tr/[a-z]/[A-Z]/;
-    my %DiscussPage = GetFile("$PageDir/$DShortDir/${DiscussPrefix}${Page}");
+    my %DiscussPage = GetPage("$PageDir/$DShortDir/${DiscussPrefix}${Page}");
     my @comments = split("----", $DiscussPage{text});
     return $#comments; #scalar(@comments);
   } else {
@@ -1984,7 +2090,7 @@ sub DoRevision {
   if(GetParam('rev',0)) {
     $PageRevision = GetParam('rev'); #$1;
     if(-f "$ArchiveDir/$ShortDir/$Page.$PageRevision") {
-      my %Filec = GetFile("$ArchiveDir/$ShortDir/$Page.$PageRevision");
+      my %Filec = GetPage("$ArchiveDir/$ShortDir/$Page.$PageRevision");
       print "<h1>Revision $Filec{revision}</h1>\n<a href=\"".
         "$ShortUrl$Page\">view current</a><hr/>\n";
       if(exists &Markup) {
@@ -2010,12 +2116,12 @@ sub DoRevert {
   if(GetParam('ver',0)) {
     #if(-f "$ArchiveDir/$ShortDir/$Page.$vals[1]") {
     if(-f "$ArchiveDir/$ShortDir/$Page.".GetParam('ver')) {
-      #my %f = GetFile("$ArchiveDir/$ShortDir/$Page.$vals[1]");
-      my %f = GetFile("$ArchiveDir/$ShortDir/$Page.".GetParam('ver'));
-      my %t = GetFile("$PageDir/$ShortDir/$Page");
+      #my %f = GetPage("$ArchiveDir/$ShortDir/$Page.$vals[1]");
+      my %f = GetPage("$ArchiveDir/$ShortDir/$Page.".GetParam('ver'));
+      my %t = GetPage("$PageDir/$ShortDir/$Page");
       $FORM{summary} = "Revert to ".(FriendlyTime($f{ts}))[$TimeZone];
       $FORM{revision} = $t{revision};
-      WriteFile($Page, $f{text}, $UserName);
+      WritePage($Page, $f{text}, $UserName);
       print "Reverted to page revision ".GetParam('ver'); #$vals[1]";
     } else {
       print "That revision doesn't exist!";
@@ -2049,6 +2155,14 @@ sub ReplaceSpaces {
   my $replacetext = shift;
   $replacetext =~ s/\s/_/g;
   return $replacetext;
+}
+
+sub StripMarkup {
+  # Returns only alphanumeric... essentially wiping out any characters that
+  #  might be used in the markup syntax.
+  my $ret = shift;
+  $ret =~ s/[^a-zA-Z0-9 _]//g;
+  return $ret;
 }
 
 sub ErrorPage {
@@ -2089,6 +2203,15 @@ sub DoSurgeProtection {
   }
 }
 
+sub IsDiscussionPage {
+  # Determines if the current page is a discussion page
+  if($Page =~ m/^$DiscussPrefix/) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
 sub DoRequest {
   # Blocked?
   if(IsBlocked()) {
@@ -2121,7 +2244,7 @@ sub DoRequest {
 
   # Check if page exists or not, and not calling a command
   #if(! -f "$PageDir/$ShortDir/$Page" and !$command and !$Commands{$command}) {
-  if(! -f "$PageDir/$ShortDir/$Page" and !GetParam('do') and !$Commands{GetParam('do')}) {
+  if(! -f "$PageDir/$ShortDir/$Page" and !GetParam('do') and !$Commands{GetParam('do')}){ # and !IsSpecialPage()) {
     $HTTPStatus = "Status: 404 Not Found\n";
   }
 
@@ -2153,7 +2276,8 @@ sub DoRequest {
   print $HTTPStatus . "Content-type: text/html\n\n";
 
   # Header
-  print Interpolate($Header);
+  #print Interpolate($Header);
+  DoHeader();
   # This is where the magic happens
   #if($command and $Commands{$command}) {	# Command directive?
   if(defined $Param{do} and $Commands{$Param{do}}) {
@@ -2161,9 +2285,11 @@ sub DoRequest {
     &{$Commands{$Param{do}}};
   } else {
     if(! -f "$PageDir/$ShortDir/$Page") {	# Doesn't exist!
-      print $NewPage;
+      #if(!IsSpecialPage) {
+	print $NewPage;
+      #}
     } else {
-      %Filec = GetFile("$PageDir/$ShortDir/$Page");
+      %Filec = GetPage("$PageDir/$ShortDir/$Page");
       if(exists &Markup) {	# If there's markup defined, do markup
 	print Markup($Filec{text});
       } else {
@@ -2186,7 +2312,8 @@ sub DoRequest {
     $DebugMessages = join("<br/>", @Messages);
   }
   # Footer
-  print Interpolate($Footer);
+  #print Interpolate($Footer);
+  DoFooter();
 }
 
 ## START

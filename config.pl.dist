@@ -173,6 +173,13 @@ $SurgeProtectionTime = 20;
 #  protection. The default is 20 hits, and should be considered a sane default.
 $SurgeProtectionCount = 20;
 
+# $EditorLicenseText - This variable contains the text that will display just
+#  below the page editor, if set. It should be something explaining the
+#  licensing that your site uses in regards to its textual content. It is
+#  surrounded by paragraph tags in HTML. The default value is blank, and is a 
+#  sane default.
+$EditorLicenseText = '';
+
 # $Header and $Footer - These variables are used in "theming" your site. If
 #  either one is blank, the default theme will be used. You can either fill
 #  the variables with content, or import the contents of a file into each.
