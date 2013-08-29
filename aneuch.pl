@@ -117,17 +117,37 @@ sub InitVars {
   InitDirs();
 
   # Get page name that is being requested
-  $Page = ((defined $ENV{'PATH_INFO'}) and ($ENV{'QUERY_STRING'} eq '')) ? $ENV{'PATH_INFO'} : $ENV{'QUERY_STRING'};
-  $Page =~ s/%([a-fA-F0-9][a-fA-F0-9])/pack("C", hex($1))/eg;   # Get "plain"
-  $Page =~ s/&/;/g;	# Replace ampersand with semicolon
-  $Page =~ s/^\?{1,}//;	# Get rid of leading '?', if it's there.
-  if($Page =~ m/=/) {	# We're getting some variables
+  #$Page = ((defined $ENV{'PATH_INFO'}) and ($ENV{'QUERY_STRING'} eq '')) ? $ENV{'PATH_INFO'} : $ENV{'QUERY_STRING'};
+  #if($ENV{'QUERY_STRING'} and $ENV{'QUERY_STRING'} !~ m/=/ and !$ENV{'PATH_INFO'}) {
+  #  $Page = $ENV{'QUERY_STRING'};
+  #} elsif($ENV{'PATH_INFO'}) {
+  #  $Page = $ENV{'PATH_INFO'};
+  #}
+  $Page = $ENV{'PATH_INFO'};
+  $Page =~ s/^\/{1,}//;
+  if($Page) {
+    $Param{'page'} = $Page;
+  }
+  if($ENV{'QUERY_STRING'} and $ENV{'QUERY_STRING'} !~ /=/ and !$Page) {
+    $Page = $ENV{'QUERY_STRING'};
+    $ENV{'QUERY_STRING'} = '';
+  }
+  #$Page =~ s/%([a-fA-F0-9][a-fA-F0-9])/pack("C", hex($1))/eg;   # Get "plain"
+  s/%([a-fA-F0-9][a-fA-F0-9])/pack("C", hex($1))/eg for ($Page,
+    $ENV{'QUERY_STRING'});
+  #$Page =~ s/&/;/g;	# Replace ampersand with semicolon
+  s/&/;/g for ($Page, $ENV{'QUERY_STRING'});
+  #$Page =~ s/^\?{1,}//;	# Get rid of leading '?', if it's there.
+  s/^\?{1,}// for ($Page, $ENV{'QUERY_STRING'});
+  #if($Page =~ m/=/) {	# We're getting some variables
+  if($ENV{'QUERY_STRING'} =~ m/=/) {
     # Read them, split them, add them to %Param
-    foreach my $arg (split(/;/,$Page)) {
+    #foreach my $arg (split(/;/,$Page)) {
+    foreach my $arg (split(/;/,$ENV{'QUERY_STRING'})) {
       my @args = split(/=/,$arg);
       $Param{$args[0]} = $args[1];
     }
-    if(!GetParam('page')) {	# Set Param 'page' if it's not already
+    if(!GetParam('page') and !$Page) {	# Set Param 'page' if it's not already
       $Param{page} = (GetParam('do',0)) ? GetParam('do') : $Page;
     }
   }
@@ -197,10 +217,10 @@ sub InitVars {
       if($ShortUrl !~ m/\?$/) { $EditText .= "?"; }
       $EditText .= 'do=edit;page='.$Page.'">Read Only</a>';
     }
-    $RevisionsText = '<a title="Click here to see revision history" '.
+    $RevisionsText = '<a title="Click here to see info and history" '.
       'rel="nofollow" href="'.$ShortUrl;
     if($ShortUrl !~ m/\?$/) { $RevisionsText .= "?"; }
-    $RevisionsText .= 'do=history;page='.$Page.'">View page history</a>';
+    $RevisionsText .= 'do=history;page='.$Page.'">Page Info &amp; History</a>';
   }
 
   # If we're a command, change the page title
@@ -221,7 +241,8 @@ sub InitVars {
     "title='$DefaultPage'>$DefaultPage</a></li><li><a href='".$ShortUrl.
     "RecentChanges' title='RecentChanges'>RecentChanges</a></li>".$NavBar;
   foreach (@NavBarPages) {
-    $_ =~ s/ /_/g;
+    #$_ =~ s/ /_/g;
+    $_ = ReplaceSpaces($_);
     $NavBar .= '<li><a href="'.$ShortUrl.$_.'" title="'.$_.'">'.$_.'</a></li>';
   }
   $NavBar .= "</ul>";
@@ -333,23 +354,35 @@ sub MarkupBuildLink {
   my $return;
   my $href;
   my $text;
-  if($data =~ m/^htt(p|ps):/) {	# External link!
-    if($data =~ m/\|/) {	# Seperate text
-      ($href,$text) = split(/\|/, $data);
-    } else {			# No seperate text
-      $href = $data; $text = $data;
-    }
+  my $url = $Url; $url =~ s/\/$//;
+  if($data =~ m/\|/) {        # Seperate text
+    ($href,$text) = split(/\|/, $data);
+  } else {                    # No seperate text
+    $href = $data; $text = $data;
+  }
+  if($text =~ /#/ and $text !~ /^#/) {
+    $text = (split(/#/,$text))[0];
+  } elsif($text =~ /^#/) {
+    $text =~ s/^#+//;
+  }
+  if(($href =~ m/^htt(p|ps):/) and ($href !~ m/^$url/)) { # External link!
     $return = "<a class='external' rel='nofollow' title='External link: ".
       $href."' target='_blank' href='".$href."'>".$text."</a>";
   } else {			# Internal link!
-    if($data =~ m/\|/) {	# Seperate text
-      ($href, $text) = split(/\|/, $data);
-    } else {			# No seperate text
-      $href = $data; $text = $data;
-    }
-    if((PageExists(ReplaceSpaces($href))) or ($href =~ m/^\?/) or (ReplaceSpaces($href) =~ m/^$DiscussPrefix/)) {
-      $return = "<a title='".$href."' href='".$ShortUrl.ReplaceSpaces($href).
-	"'>".$text."</a>";
+    #my $testhref = ($href =~ /^#/) ? $href : (split(/#/,$href))[0];
+    #if($href =~ /^#/) {
+    #  $href = $Page.$href;
+    #}
+    my $testhref = (split(/#/,$href))[0];
+    #if((PageExists(ReplaceSpaces($href))) or ($href =~ m/^\?/) or (ReplaceSpaces($href) =~ m/^$DiscussPrefix/) or ($href =~ m/^$url/)) {
+    if((PageExists(ReplaceSpaces($testhref))) or ($testhref =~ m/^\?/) or (ReplaceSpaces($testhref) =~ m/^$DiscussPrefix/) or ($testhref =~ m/^$url/) or ($testhref eq '')) {
+      $return = "<a title='".$href."' href='";
+      if(($href !~ m/^$url/) and ($href !~ m/^#/)) {
+	$return .= $ShortUrl.ReplaceSpaces($href);
+      } else {
+	$return .= $href;
+      }
+      $return .= "'>".$text."</a>";
     } else {
       $return = "[$text<a rel='nofollow' title='Create page ".$href.
 	"' href='".$ShortUrl."?do=edit;page=".ReplaceSpaces($href)."'>?</a>]";
@@ -415,6 +448,7 @@ sub Markup {
     #$line =~ s/^#//;
 
     # Signature
+    #  This is only for preview!!!!!!!
     #$line =~ s/~{4}/GetSignature((ReadCookie())[0])/eg;
     $line =~ s/~{4}/GetSignature($UserName)/eg;
 
@@ -654,29 +688,10 @@ sub GetParam {
 sub GetPage {
   # GetPage will read the file into a hash, and return it.
   my $file = shift;
-  my @return;		# This used to be the return data, now it's used to
-			#  read in the file.
-  my %F;		# This is now the return variable.
-  my $currentkey;	# Current key of the hash that we're reading in
-  if(-f "$file") { # If the file exists
-    open(FH,"$file") or push @Messages, $!; # Push error
-    chomp(@return = <FH>);	# Remove \n
-    close(FH);
-    s/\r//g for @return;
-    foreach (@return) {
-      if(/^\t/) {
-	$F{$currentkey} .= "\n$_";
-      } else {
-	my $e = index($_, ': ');
-	$currentkey = substr($_,0,$e);
-        $F{$currentkey} = substr($_,$e+2);
-      }
-    }
-    s/\n\t/\n/g for ($F{text}, $F{diff});
-    return %F;
-  } else {
-    return ();
-  }
+  # Get short dir
+  my $archive = substr($file,0,1); $archive =~ tr/[a-z]/[A-Z]/;  
+  # Call ReadDB!
+  return ReadDB("$PageDir/$archive/$file");
 }
 
 sub InitDirs {
@@ -793,6 +808,12 @@ sub LogRecent {
   open(RCL,">$RecentChangesLog") or push @Messages, "LogRecent: Unable to write to $RecentChangesLog: $!";
   print RCL @rc;
   close(RCL);
+  Notify($file, $un, $mess);
+}
+
+sub Notify {
+  my ($file, $user, $message) = @_;
+  # Prepare to notify people
 }
 
 sub RefreshLock {
@@ -821,7 +842,7 @@ sub DoEdit {
     $contents = join("\n", @preview);
     RefreshLock();
   } else {
-    my %f = GetPage("$PageDir/$ShortDir/$Page");
+    my %f = GetPage($Page);
     chomp($contents = $f{text});
     $revision = $f{revision} if defined $f{revision};
     $revision = 0 unless $revision;
@@ -845,7 +866,7 @@ sub DoEdit {
     # Set a lock
     if(@preview or SetLock()) {
       #print 'Summary: <input type="text" name="summary" size="60" />';
-      print '<br/>Summary:<br/><textarea name="summary" cols="100" rows="2"'.
+      print '<br/>Summary:<br/><textarea name="summary" cols="100" rows="2" '.
       'style="width:100%" placeholder="Edit summary (required)"></textarea>'.
       '<br/><br/>';
       print ' User name: <input type="text" name="uname" size="30" value="'.$UserName.'" /> ';
@@ -873,7 +894,7 @@ sub SetLock {
   if(-f "$TempDir/$Page.lock") {
     chomp(my @lock = FileToArray("$TempDir/$Page.lock"));
     my ($u, $p) = ReadCookie();
-    if($lock[0] != $UserIP and $lock[1] ne $u) {
+    if($lock[0] ne $UserIP and $lock[1] ne $u) {
       print "<p><span style='color:red'>This file is locked by <strong>".
 	"$lock[0] ($lock[1])</strong> since <strong>".
 	(FriendlyTime($lock[2]))[$TimeZone]."</strong>.</span>";
@@ -883,7 +904,7 @@ sub SetLock {
       return 0;
     } else {
       # Let's refresh the lock!
-      RefreshLock();
+      return RefreshLock();
     }
   } else {
     open(LOCK,">$TempDir/$Page.lock") or push @Messages, "Error opening $Page.lock for write: $!";
@@ -924,10 +945,11 @@ sub DoArchive {
   my $file = shift;	# The file we're working on
   # $archive will be the 1-letter dir under /archive that we're writing to
   my $archive = substr($file,0,1); $archive =~ tr/[a-z]/[A-Z]/;
-  if(!-f "$PageDir/$archive/$file") { return; }
+  #if(!-f "$PageDir/$archive/$file") { return; }
+  if(!PageExists($file)) { return; }
   # If $archive doesn't exist, we'd better create it...
   if(! -d "$ArchiveDir/$archive") { mkdir "$ArchiveDir/$archive"; }
-  my %F = GetPage("$PageDir/$archive/$file");
+  my %F = GetPage($file);
   # Now copy...
   system("cp $PageDir/$archive/$file $ArchiveDir/$archive/$file.$F{revision}");
 }
@@ -942,17 +964,19 @@ sub WritePage {
   # If $archive doesn't exist, we'd better create it...
   if(! -d "$PageDir/$archive") { mkdir "$PageDir/$archive"; }
   chomp($content);
+  # Catch any signatures!
+  $content =~ s/~{4}/GetSignature($UserName)/eg;
   $content .= "\n";
   DoArchive($file);
   $content =~ s/\r//g;
   StringToFile($content, "$TempDir/new");
-  $content =~ s/\n/\n\t/g;
-  my %T = GetPage("$PageDir/$archive/$file");
+  #$content =~ s/\n/\n\t/g;
+  my %T = GetPage($file);
   StringToFile($T{text}, "$TempDir/old");
   my $diff = `diff $TempDir/old $TempDir/new`;
   $diff =~ s/\\ No newline.*\n//g;
   $diff =~ s/\r//g;
-  $diff =~ s/\n/\n\t/g;
+  #$diff =~ s/\n/\n\t/g;
   my %F;
   # Build file information
   $F{summary} = $FORM{summary};
@@ -963,15 +987,60 @@ sub WritePage {
   $F{text} = $content;
   $F{revision} = $FORM{revision} + 1;
   $F{diff} = $diff;
-  open(FILE, ">$PageDir/$archive/$file") or push @Messages, "Unable to write to $file: $!";
+  #open(FILE, ">$PageDir/$archive/$file") or push @Messages, "Unable to write to $file: $!";
   # FIXME: Need locks here!
-  foreach my $key (keys %F) {
-    print FILE "$key: " . $F{$key} . "\n";
-  }
-  close(FILE);
+  #foreach my $key (keys %F) {
+  #  print FILE "$key: " . $F{$key} . "\n";
+  #}
+  #close(FILE);
+  WriteDB("$PageDir/$archive/$file", \%F);
   UnLock($file);
   Index($file);
   LogRecent($file,$user,$FORM{summary});
+}
+
+sub WriteDB {
+  # We receive file name, and hash
+  my $filename = shift;
+  my %filedata = %{shift()};
+  open(FILE, ">$filename") or push @Messages, "WriteDB: Unable to write to $filename: $!";
+  flock(LOGFILE, LOCK_EX);	# Lock, exclusive
+  seek(LOGFILE, 0, SEEK_SET);	# Go to beginning of file...
+  foreach my $key (sort keys %filedata) {
+    $filedata{$key} =~ s/\n/\n\t/g;
+    $filedata{$key} =~ s/\r//g;
+    print FILE "$key: ".$filedata{$key}."\n";
+  }
+  close(FILE);
+}
+
+sub ReadDB {
+  # Reads in the DB format that Aneuch wants...
+  my $file = shift;
+  my @return;
+  my %F;
+  my $currentkey;	# Current key of the hash that we're reading in
+  if(-f "$file") { # If the file exists
+    open(FH,"$file") or push @Messages, "ReadDB: Unable to open file $file: $!"; # Push error
+    chomp(@return = <FH>);	# Remove \n
+    close(FH);
+    s/\r//g for @return;
+    foreach (@return) {
+      if(/^\t/) {
+        $F{$currentkey} .= "\n$_";
+      } else {
+        my $e = index($_, ': ');
+        $currentkey = substr($_,0,$e);
+        $F{$currentkey} = substr($_,$e+2);
+      }
+    }
+    foreach my $key (keys %F) {
+      $F{$key} =~ s/\n\t/\n/g;
+    }
+    return %F;
+  } else {
+    return ();
+  }
 }
 
 sub GetSignature {
@@ -1009,7 +1078,7 @@ sub AppendPage {
   my $archive = substr($file,0,1); $archive =~ tr/[a-z]/[A-Z]/;
   if(!-d "$PageDir/$archive") { mkdir "$PageDir/$archive"; }
   if(-f "$PageDir/$archive/$file") {
-    %T = GetPage("$PageDir/$archive/$file");
+    %T = GetPage($file);
   } else {
     $T{revision} = 0;
     $T{text} = '';
@@ -1023,13 +1092,14 @@ sub AppendPage {
   my $diff = `diff $TempDir/old $TempDir/new`;
   $diff =~ s/\\ No newline.*\n//g;
   $F{diff} = $diff;
-  s/\n/\n\t/g for ($F{text}, $F{diff});
-  open(FILE, ">$PageDir/$archive/$file") or push @Messages, "AppendPage: Unable to append to $file: $!";
+  #s/\n/\n\t/g for ($F{text}, $F{diff});
+  #open(FILE, ">$PageDir/$archive/$file") or push @Messages, "AppendPage: Unable to append to $file: $!";
   # FIXME: Need locks here!
-  foreach my $key (sort keys %F) {
-    print FILE "$key: " . $F{$key} . "\n";
-  }
-  close(FILE);
+  #foreach my $key (sort keys %F) {
+  #  print FILE "$key: " . $F{$key} . "\n";
+  #}
+  #close(FILE);
+  WriteDB("$PageDir/$archive/$file", \%F);
   LogRecent($file,$user,"Comment by $user");
   Index();
 }
@@ -1339,7 +1409,7 @@ sub AntiSpam {
     my $question = (keys %QuestionAnswer)[rand keys %QuestionAnswer];
     print '<input type="hidden" name="session" value="'. unpack("%32W*",$question) % 65535;
     print '" />';
-    print "<br/>$question&nbsp;";
+    print "<br/><br/>$question&nbsp;";
     print '<input type="text" name="answer" size="30" /> ';
   }
 }
@@ -1347,9 +1417,12 @@ sub AntiSpam {
 sub IsBannedContent {
   # Checks the edit for banned content.
   my @bc = FileToArray($BannedContent);
-  @bc = grep(!/^#/,@bc);	# Remove comments
-  @bc = grep(/\S/,@bc);	# Remove blanks
+  #@bc = grep(!/^#/,@bc);	# Remove comments
+  #@bc = grep(/\S/,@bc);	# Remove blanks
+  @bc = grep { length($_) and $_ !~ /^#/ } @bc;
   foreach my $c (@bc) {
+    # If trailing comments...
+    $c = (split("#",$c))[0];
     if($FORM{'text'} =~ m/$c/i) {
       #print STDERR "Matched rule: $c";
       return 1;
@@ -1409,7 +1482,7 @@ sub DoDiscuss {
     }
   }
   RedHerringForm();
-  print "<p></p><form action='$ScriptName' method='post'>
+  print "<p id=\"discuss-form\"></p><form action='$ScriptName' method='post'>
     <input type='hidden' name='doing' value='discuss' />
     <input type='hidden' name='file' value='$Page' />
     <textarea name='text' style='width:100%;' placeholder='$NewComment'"; 
@@ -1421,6 +1494,21 @@ sub DoDiscuss {
   AntiSpam();
   print " <input type='submit' name='whattodo' value='Save' />
     <input type='submit' name='whattodo' value='Preview' /></form>";
+  print '<script language="javascript" type="text/javascript">'.
+    "function ShowHide() {
+	document.getElementById('discuss-help').style.display = (document.getElementById('discuss-help').style.display == 'none') ? 'block' : 'none';
+	document.getElementById('showhidehelp').innerHTML = (document.getElementById('showhidehelp').innerHTML == 'Show markup help') ? 'Hide markup help' : 'Show markup help';
+	return true; }".
+    '</script>';
+  print "<br/><a title=\"Markup help\" id=\"showhidehelp\"".
+    #"onclick=\"if(document.getElementById('markup-help').style.display == 'none') ".
+    #"{document.getElementById('markup-help').style.display = 'block'} else ".
+    #"{document.getElementById('markup-help').style.display = 'none'}\">".
+    "href=\"#discuss-form\" onclick=\"ShowHide();\">".
+    "Show markup help</a>";
+  print "<br/><div id=\"discuss-help\" style=\"display:none;\">";
+  MarkupHelp();
+  print "</div>";
 }
 
 sub DoRecentChanges {
@@ -1485,7 +1573,8 @@ sub DoSearch {
     print "<p>What in the world are you searching for!?</p>";
     return;
   }
-  my $altsearch = $search; $altsearch =~ s/ /_/g;
+  #my $altsearch = $search; $altsearch =~ s/ /_/g;
+  my $altsearch = ReplaceSpaces($search);
   my %result;
   print "<p>Search results for &quot;$search&quot;</p>";
   foreach my $file (@files) {
@@ -1515,12 +1604,13 @@ sub DoSearch {
   # Now sort them by value...
   my @keys = sort {length $result{$b} <=> length $result{$a}} keys %result;
   if(scalar @keys == 0) {
-    print "Nothing found!";
+    print "Nothing found!<br/><br/>";
   }
   foreach my $key (@keys) {
     print "<a href='$ShortUrl$key'>$key</a><br/>".
       $result{$key}."<br/><br/>";
   }
+  print scalar(@keys)." pages found.";
 }
 
 sub SearchForm {
@@ -1579,9 +1669,22 @@ sub QuoteHTML {
 sub DoHistory {
   my $author; my $summary; my %f;
   my $topone = " checked";
-  if(-f "$PageDir/$ShortDir/$Page") {
-    %f = GetPage("$PageDir/$ShortDir/$Page");
+  #if(-f "$PageDir/$ShortDir/$Page") {
+  if(PageExists($Page)) {
+    %f = GetPage($Page);
     my $currentday = YMD($f{ts});
+    my $linecount = (split(/\n/,$f{text}));
+    my $wordcount = @{[ $f{text} =~ /\S+/g ]};
+    my $scharcount = length($f{text}) - (split(/\n/,$f{text}));
+    my $charcount = $scharcount - ($f{text} =~ tr/ / /);
+    print "<p><strong>$Page</strong><br/>".
+      "The most recent revision number of this page is $f{'revision'}. ".
+      "It was last modified ".(FriendlyTime($f{'ts'}))[$TimeZone].
+      " by ".QuoteHTML($f{author}).". ".
+      "There are $linecount lines of text, $wordcount words, ".
+      "$scharcount characters with spaces and $charcount without. ".
+      "The total page size (including metadata) is ".(stat("$PageDir/$ShortDir/$Page"))[7]." bytes.";
+    print "</p>";
     #print "<form action='$ScriptName' method='get'>";
     print "<form action='$ShortUrl' method='get'>";
     print "<input type='hidden' name='do' value='diff' />";
@@ -1609,7 +1712,8 @@ sub DoHistory {
       #  laid out (file.x, file.xx, etc).
       @history = sort { -M $a <=> -M $b } @history;
       foreach my $c (@history) {
-	%f = GetPage($c);
+	# This next line needs to use ReadDB as it references a full path
+	%f = ReadDB($c); #GetPage($c);
 	my $nextrev;
         my $day = YMD($f{ts});
         if($day ne $currentday) {
@@ -1731,7 +1835,7 @@ sub DoPostingDiscuss {
       DoPostingSpam();
     }
   }
-  ReDirect($Url.$FORM{'file'}."#bottom");
+  ReDirect($Url.$FORM{'file'}."#discuss-form");
 }
 
 sub DoPostingBlockList {
@@ -1873,19 +1977,14 @@ sub StringToFile {
 
 sub FileToString {
   my $file = shift;
-  my @return;
-  open(FILE,"<$file") or push @Messages, "FileToString: Can't read from $file: $!";
-  # FIXME: Need locks here!
-  @return = <FILE>;
-  close(FILE);
-  s/\r//g for @return;
-  return join("",@return);
+  #my @return = FileToArray($file);
+  return join("\n", FileToArray($file)); #@return);
 }
 
 sub FileToArray {
   my $file = shift;
   my @return;
-  open(FILE,"<$file") or push @Messages, "FileTOArray: Can't read from $file: $!";
+  open(FILE,"<$file") or push @Messages, "FileToArray: Can't read from $file: $!";
   chomp(@return = <FILE>);
   close(FILE);
   s/\r//g for @return;
@@ -1894,12 +1993,12 @@ sub FileToArray {
 
 sub GetDiff {
   my ($old, $new) = @_;
-  my %OldFile = GetPage("$ArchiveDir/$ShortDir/$old");
+  my %OldFile = ReadDB("$ArchiveDir/$ShortDir/$old"); #GetPage("$ArchiveDir/$ShortDir/$old");
   my %NewFile;
   if(($new =~ m/\.\d+$/) and (-f "$ArchiveDir/$ShortDir/$new")) {
-    %NewFile = GetPage("$ArchiveDir/$ShortDir/$new");
+    %NewFile = ReadDB("$ArchiveDir/$ShortDir/$new"); #GetPage("$ArchiveDir/$ShortDir/$new");
   } else {
-    %NewFile = GetPage("$PageDir/$ShortDir/$new");
+    %NewFile = ReadDB("$PageDir/$ShortDir/$new"); #GetPage("$PageDir/$ShortDir/$new");
   }
   # Write them out
   StringToFile($OldFile{text}, "$TempDir/old");
@@ -1944,7 +2043,7 @@ sub DoDiff {
   # If there are no more arguments, assume we want most recent diff
   #if(!$ArgList) {
   if(!GetParam('v1') and !GetParam('v2')) {
-    my %F = GetPage("$PageDir/$ShortDir/$Page");
+    my %F = GetPage($Page);
     print "Showing changes to the most recent revision";
     print HTMLDiff($F{diff});
     print "<hr/>";
@@ -1980,9 +2079,9 @@ sub DoDiff {
       print HTMLDiff(GetDiff($oldrev, $newrev));
       print "<hr/>";
       if(($newrev =~ m/\.\d+$/) and (-f "$ArchiveDir/$ShortDir/$newrev")) {
-	%F = GetPage("$ArchiveDir/$ShortDir/$newrev");
+	%F = ReadDB("$ArchiveDir/$ShortDir/$newrev"); #GetPage("$ArchiveDir/$ShortDir/$newrev");
       } else {
-	%F = GetPage("$PageDir/$ShortDir/$newrev");
+	%F = ReadDB("$PageDir/$ShortDir/$newrev"); #GetPage("$PageDir/$ShortDir/$newrev");
       }
       if(defined &Markup) {
 	print Markup($F{text});
@@ -2021,9 +2120,11 @@ sub DiscussCount {
   # Returns the number of comments on a Discuss page
   if(PageExists("${DiscussPrefix}${Page}")) {
     my $DShortDir = substr($DiscussPrefix,0,1); $DShortDir =~ tr/[a-z]/[A-Z]/;
-    my %DiscussPage = GetPage("$PageDir/$DShortDir/${DiscussPrefix}${Page}");
-    my @comments = split("----", $DiscussPage{text});
-    return $#comments; #scalar(@comments);
+    my %DiscussPage = ReadDB("$PageDir/$DShortDir/${DiscussPrefix}${Page}"); #GetPage("$PageDir/$DShortDir/${DiscussPrefix}${Page}");
+    #my @comments = split("----", $DiscussPage{text});
+    my @comments = split(GetDiscussionSeparator(), $DiscussPage{text});
+    #return $#comments; #scalar(@comments);
+    return scalar(@comments);
   } else {
     return 0;
   }
@@ -2090,7 +2191,7 @@ sub DoRevision {
   if(GetParam('rev',0)) {
     $PageRevision = GetParam('rev'); #$1;
     if(-f "$ArchiveDir/$ShortDir/$Page.$PageRevision") {
-      my %Filec = GetPage("$ArchiveDir/$ShortDir/$Page.$PageRevision");
+      my %Filec = ReadDB("$ArchiveDir/$ShortDir/$Page.$PageRevision"); #GetPage("$ArchiveDir/$ShortDir/$Page.$PageRevision");
       print "<h1>Revision $Filec{revision}</h1>\n<a href=\"".
         "$ShortUrl$Page\">view current</a><hr/>\n";
       if(exists &Markup) {
@@ -2117,8 +2218,8 @@ sub DoRevert {
     #if(-f "$ArchiveDir/$ShortDir/$Page.$vals[1]") {
     if(-f "$ArchiveDir/$ShortDir/$Page.".GetParam('ver')) {
       #my %f = GetPage("$ArchiveDir/$ShortDir/$Page.$vals[1]");
-      my %f = GetPage("$ArchiveDir/$ShortDir/$Page.".GetParam('ver'));
-      my %t = GetPage("$PageDir/$ShortDir/$Page");
+      my %f = ReadDB("$ArchiveDir/$ShortDir/$Page.".GetParam('ver'));
+      my %t = GetPage($Page);
       $FORM{summary} = "Revert to ".(FriendlyTime($f{ts}))[$TimeZone];
       $FORM{revision} = $t{revision};
       WritePage($Page, $f{text}, $UserName);
@@ -2289,7 +2390,7 @@ sub DoRequest {
 	print $NewPage;
       #}
     } else {
-      %Filec = GetPage("$PageDir/$ShortDir/$Page");
+      %Filec = GetPage($Page);
       if(exists &Markup) {	# If there's markup defined, do markup
 	print Markup($Filec{text});
       } else {
