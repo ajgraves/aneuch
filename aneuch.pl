@@ -225,7 +225,7 @@ sub InitVars {
 
   # If we're a command, change the page title
   if(GetParam('do') eq 'search') {
-    $PageName = "Search for: ".GetParam('search');
+    $PageName = "Search for: ".GetParam('search','');
   }
 
   # Set the TimeStamp
@@ -242,8 +242,9 @@ sub InitVars {
     "RecentChanges' title='RecentChanges'>RecentChanges</a></li>".$NavBar;
   foreach (@NavBarPages) {
     #$_ =~ s/ /_/g;
-    $_ = ReplaceSpaces($_);
-    $NavBar .= '<li><a href="'.$ShortUrl.$_.'" title="'.$_.'">'.$_.'</a></li>';
+    #$_ = ReplaceSpaces($_);
+    $NavBar .= '<li><a href="'.$ShortUrl.ReplaceSpaces($_).
+      '" title="'.$_.'">'.$_.'</a></li>';
   }
   $NavBar .= "</ul>";
 
@@ -348,6 +349,11 @@ sub DoFooter {
   }
 }
 
+sub DoCSS {
+  # Return default CSS, unless a theme is specified, or custom CSS is in place
+  
+}
+
 sub MarkupBuildLink {
   # This sub takes everything between [[ and ]] and builds a link out of it.
   my $data = shift;
@@ -375,7 +381,7 @@ sub MarkupBuildLink {
     #}
     my $testhref = (split(/#/,$href))[0];
     #if((PageExists(ReplaceSpaces($href))) or ($href =~ m/^\?/) or (ReplaceSpaces($href) =~ m/^$DiscussPrefix/) or ($href =~ m/^$url/)) {
-    if((PageExists(ReplaceSpaces($testhref))) or ($testhref =~ m/^\?/) or (ReplaceSpaces($testhref) =~ m/^$DiscussPrefix/) or ($testhref =~ m/^$url/) or ($testhref eq '')) {
+    if((PageExists(ReplaceSpaces($testhref))) or ($testhref =~ m/^\?/) or (ReplaceSpaces($testhref) =~ m/^$DiscussPrefix/) or ($testhref =~ m/^$url/) or ($testhref eq '') or (!CanEdit())) {
       $return = "<a title='".$href."' href='";
       if(($href !~ m/^$url/) and ($href !~ m/^#/)) {
 	$return .= $ShortUrl.ReplaceSpaces($href);
@@ -694,6 +700,13 @@ sub GetPage {
   return ReadDB("$PageDir/$archive/$file");
 }
 
+sub GetArchivePage {
+  my ($file, $revision) = shift;
+  # Get short dir
+  my $archive = substr($file,0,1); $archive =~ tr/[a-z]/[A-Z]/;
+  return ReadDB("$ArchiveDir/$archive/$file.$revision");
+}
+
 sub InitDirs {
   # Sets the directories, and creates them if need be.
   eval { mkdir $DataDir unless -d $DataDir; }; push @Messages, $@ if $@;
@@ -739,7 +752,7 @@ sub ReadCookie {
 
 sub SetCookie {
   # Save user and pass to cookie
-  my ($user, $pass) = ($FORM{user}, $FORM{pass});
+  my ($user, $pass) = @_; #($FORM{user}, $FORM{pass});
   my $matchedpass = grep(/^$pass$/, @Passwords); # Did they provide right pass?
   my $cookie = $user if $user;		# Username first, if they gave it
   if($matchedpass and $user) {		# Need both...
@@ -1125,7 +1138,7 @@ sub AdminForm {
   print 'User: <input type="text" maxlength="30" size="20" name="user" value="'.
   $u.'" />';
   print ' Pass: <input type="password" size="20" name="pass" value="'.$p.'" />';
-  print '<input type="submit" value="Go" /></form>';
+  print ' <input type="submit" value="Go" /></form>';
 }
 
 sub DoAdminPassword {
@@ -1147,7 +1160,7 @@ sub DoAdminVersion {
   print "<p>$ENV{'SERVER_SOFTWARE'}</p>";
   print "<p>perl: ".`perl -v`."</p>";
   print "<p>diff: ".`diff --version`."</p>";
-  #print "<p>grep: ".`grep --version`."</p>";
+  print "<p>grep: ".`grep --version`."</p>";
   print "<p>awk: ".`awk --version`."</p>";
 }
 
@@ -1185,11 +1198,19 @@ sub DoAdminRemoveLocks {
 }
 
 sub DoAdminClearVisits {
-  # Clears out $VisitorLog
-  open(LOGFILE,">$VisitorLog") or push @Messages, "DoAdminClearVisits: Unable to open $VisitorLog: $!";
-  print LOGFILE "";
-  close(LOGFILE);
-  print "Log file successfully cleared.";
+  # Clears out $VisitorLog after confirming (too many accidental deletes)
+  if(GetParam('confirm','no') eq "yes") {
+    if(unlink $VisitorLog) {
+      print "Log file successfully cleared.";
+    } else {
+      print "Error while deleting visitors.log: $!";
+    }
+  } else {
+    print "<p>Are you sure you want to clear the visitor log? ".
+      "This cannot be undone.</p><p><a href=\"$ShortUrl".
+      "?do=admin;page=clearvisits;confirm=yes\">YES</a>&nbsp;&nbsp;".
+      "<a href=\"javascript:history.go(-1)\">NO</a></p>";
+  }
 }
 
 sub DoAdminListVisitors {
@@ -1315,7 +1336,7 @@ sub DoAdminBlock {
   print "<form action='$ScriptName' method='post'>".
     "<input type='hidden' name='doing' value='blocklist' />".
     "<textarea name='blocklist' rows='30' cols='100'>".$blocked.
-    "</textarea><input type='submit' value='Save' /></form>";
+    "</textarea><br/><input type='submit' value='Save' /></form>";
 }
 
 sub DoAdminBannedContent {
@@ -1331,7 +1352,7 @@ sub DoAdminBannedContent {
   print "<form action='$ScriptName' method='post'>".
     "<input type='hidden' name='doing' value='bannedcontent' />".
     "<textarea name='bannedcontent' rows='30' cols='100'>".$content.
-    "</textarea><input type='submit' value='Save' /></form>";
+    "</textarea><br/><input type='submit' value='Save' /></form>";
 }
 
 sub DoAdmin {
@@ -1457,7 +1478,7 @@ sub PassesSpamCheck {
   # "Checksum" of the question
   my $qcs = unpack("%32W*",$question) % 65535;
   # If checksum doesn't match, don't pass
-  if($qcs != $FORM{'question'}) { return 0; }
+  if($qcs != $FORM{'session'}) { return 0; }
   # Nothing else? Return 1.
   return 1;
 }
@@ -1582,7 +1603,7 @@ sub DoSearch {
     my $linkedtopage;
     my $matchcount;
     $fn =~ s#^$PageDir/.*?/##;
-    my %F = GetPage($file);
+    my %F = GetPage($fn); #GetPage($file);
     if($fn =~ m/.*?($search|$altsearch).*?/i) {
       $linkedtopage = 1;
       $result{$fn} = '<small>Last modified '.
@@ -1617,6 +1638,13 @@ sub SearchForm {
   my $ret;
   #$ret = "<form enctype=\"multipart/form-data\" class='searchform' ".
   #  "action='$ScriptName' method='get'>";
+  #$ret = "<script language=\"javascript\" type=\"text/javascript\">\n".
+  #  'function validateForm() {'."\n".
+  #  'var x=document.forms["SearchForm"]["search"].value;'."\n".
+  #  'if (x!=null || x!="") {'."\n".
+  #  '  alert("\'".x."\'");'."\n".
+  #  '  document.getElementById("SearchForm").submit();'."\n".
+  #  "}\n}\n</script>".
   $ret = "<form class='searchform' action='$ShortUrl' method='get'>".
     "<input type='hidden' name='do' value='search' />".
     "<input type='text' name='search' size='40' placeholder='Search' ";
@@ -1624,6 +1652,8 @@ sub SearchForm {
     $ret .= "value='".GetParam('search')."' ";
   }
   $ret .= "/> <input type='submit' value='Search' /></form>";
+  #$ret .= "/> <input type='button' onclick='validateForm();' value='Search' />".
+  #  "</form>";
   return $ret;
 }
 
@@ -1704,7 +1734,7 @@ sub DoHistory {
     } else {
       print " . . . . ".QuoteHTML($f{author});
     }
-    print " &ndash; " . QuoteHTML($f{summary}) . "</td></tr>";
+    print " ($f{ip}) &ndash; " . QuoteHTML($f{summary}) . "</td></tr>";
 
     if($ArchiveDir and $ShortDir and -d "$ArchiveDir/$ShortDir") {
       my @history = (glob("$ArchiveDir/$ShortDir/$Page.*"));
@@ -1744,7 +1774,7 @@ sub DoHistory {
 	} else {
 	  print " . . . . ".QuoteHTML($f{author});
 	}
-        print " &ndash; " . QuoteHTML($f{summary}) . "</td></tr>";
+        print " ($f{ip}) &ndash; " . QuoteHTML($f{summary}) . "</td></tr>";
       }
     }
     print "</table><input type='submit' value='Compare'></form>";
@@ -1788,13 +1818,18 @@ sub DoPostingSpam {
 }
 
 sub DoPostingLogin {
-  SetCookie();
+  SetCookie($FORM{'user'}, $FORM{'pass'});
   ReDirect($Url.$FORM{'file'});
 }
 
 sub DoPostingEditing {
   my $redir;
   if(CanEdit()) {
+    # Set user name if not already done
+    my ($u, $p) = ReadCookie();
+    if($u ne $FORM{uname} or !$u) {
+      SetCookie($FORM{uname}, $p);
+    }
     if($FORM{'whattodo'} eq "Cancel") {
       UnLock($FORM{'file'});
       my @tfiles = (glob("$TempDir/".$FORM{'file'}.".*"));
@@ -1820,14 +1855,21 @@ sub DoPostingEditing {
 
 sub DoPostingDiscuss {
   if(CanDiscuss()) {
-    if(PassesSpamCheck()) {
+    if($FORM{'whattodo'} eq "Preview" or PassesSpamCheck()) {
+      # Set user name if not already done
+      my ($u, $p) = ReadCookie();
+      if($u ne $FORM{uname} or !$u) {
+	SetCookie($FORM{uname}, $p);
+      }
       if($FORM{'whattodo'} eq "Save") {
 	if(-f "$TempDir/$FORM{'file'}.$UserIP") {
 	  unlink "$TempDir/$FORM{'file'}.$UserIP";
 	}
 	AppendPage($FORM{'file'}, $FORM{'text'}, $FORM{'uname'}, $FORM{'url'});
       } elsif($FORM{'whattodo'} eq "Preview") {
-	StringToFile($FORM{'text'}."\n\n".GetSignature($FORM{'uname'}, $FORM{'url'}).GetDiscussionSeparator(), "$TempDir/$FORM{'file'}.$UserIP");
+	StringToFile($FORM{'text'}."\n\n".GetSignature($FORM{'uname'},
+	  $FORM{'url'}).GetDiscussionSeparator(),
+	  "$TempDir/$FORM{'file'}.$UserIP");
       } else {
 	# What!?
       }
@@ -1867,7 +1909,8 @@ sub DoPosting {
 sub DoVisit {
   # Log a visit to the visitor log
   #my $mypage = $Page; 
-  my $mypage = (GetParam('search')) ? GetParam('search') : $Page;
+  #my $mypage = (GetParam('search')) ? GetParam('search') : $Page;
+  my $mypage = (GetParam('do') eq 'search') ? GetParam('search','') : $Page;
   $mypage =~ s/ /+/g;
   my $logentry = "$UserIP\t$TimeStamp\t$mypage";
   #if($PageRevision) { $command .= "$PageRevision"; }
