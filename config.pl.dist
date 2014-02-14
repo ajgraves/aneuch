@@ -28,6 +28,7 @@ $SiteName = 'Aneuch';
 #	0 = Wide open, anyone can edit.
 #	1 = Anyone can add to Discussion pages, but cannot edit anything
 #	2 = Nobody can post anything, unless authenticated.
+#	3 = Nobody can view anything, unless authenticated.
 $SiteMode = 0;
 
 # @Passwords - This goes hand in hand with the $SiteMode variable above. If

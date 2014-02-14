@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 ## **********************************************************************
-## Copyright (c) 2012-2013, Aaron J. Graves (cajunman4life@gmail.com)
+## Copyright (c) 2012-2014, Aaron J. Graves (cajunman4life@gmail.com)
 ## All rights reserved.
 ##
 ## Redistribution and use in source and binary forms, with or without 
@@ -45,7 +45,7 @@ $RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog
 @NavBarPages $BlockedList %PostingActions $HTTPStatus $PurgeRC %MaintActions
 $PurgeArchives $SearchPage $SearchBox $TemplateDir $Template $FancyUrls
 %QuestionAnswer $BannedContent %Param %SpecialPages $SurgeProtectionTime
-$SurgeProtectionCount @PostInitSubs $EditorLicenseText);
+$SurgeProtectionCount @PostInitSubs $EditorLicenseText $AdminText $RandomText);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
@@ -223,6 +223,12 @@ sub InitVars {
     $RevisionsText .= 'do=history;page='.$Page.'">Page Info &amp; History</a>';
   }
 
+  # Admin link
+  $AdminText = "<a title=\"Administration options\" rel=\"nofollow\" href=\"$ShortUrl?do=admin;page=admin\">Admin</a>";
+
+  # Random link
+  $RandomText = "<a title=\"Random page\" rel=\"nofollow\" href=\"$ShortUrl?do=random;page=$Page\">Random Page</a>";
+
   # If we're a command, change the page title
   if(GetParam('do') eq 'search') {
     $PageName = "Search for: ".GetParam('search','');
@@ -371,6 +377,11 @@ sub MarkupBuildLink {
   } elsif($text =~ /^#/) {
     $text =~ s/^#+//;
   }
+  if($text =~ /\?/ and $text !~ /^\?/) {
+    $text = (split(/\?/,$text))[0];
+  } elsif($text =~ /^\?/) {
+    $text =~ s/^\?+//;
+  }
   if(($href =~ m/^htt(p|ps):/) and ($href !~ m/^$url/)) { # External link!
     $return = "<a class='external' rel='nofollow' title='External link: ".
       $href."' target='_blank' href='".$href."'>".$text."</a>";
@@ -380,6 +391,7 @@ sub MarkupBuildLink {
     #  $href = $Page.$href;
     #}
     my $testhref = (split(/#/,$href))[0];
+    $testhref = (split(/\?/,$testhref))[0];
     #if((PageExists(ReplaceSpaces($href))) or ($href =~ m/^\?/) or (ReplaceSpaces($href) =~ m/^$DiscussPrefix/) or ($href =~ m/^$url/)) {
     if((PageExists(ReplaceSpaces($testhref))) or ($testhref =~ m/^\?/) or (ReplaceSpaces($testhref) =~ m/^$DiscussPrefix/) or ($testhref =~ m/^$url/) or ($testhref eq '') or (!CanEdit())) {
       $return = "<a title='".$href."' href='";
@@ -753,6 +765,7 @@ sub ReadCookie {
 sub SetCookie {
   # Save user and pass to cookie
   my ($user, $pass) = @_; #($FORM{user}, $FORM{pass});
+  #my ($cname, $cdata, $cexp) = @_;
   my $matchedpass = grep(/^$pass$/, @Passwords); # Did they provide right pass?
   my $cookie = $user if $user;		# Username first, if they gave it
   if($matchedpass and $user) {		# Need both...
@@ -784,6 +797,31 @@ sub CanEdit {
   } else {
     return 0;
   }
+}
+
+sub CanView {
+  # Determine if the site can be viewed
+  if($SiteMode < 3) { return 1; }	# Automatic if not 3
+  if(IsLoggedIn()) {
+    return 1;
+  } else {
+    # Check if we're requesting the password page
+    if((GetParam('do') eq 'admin') and (GetParam('page') eq "password")) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+}
+
+sub IsLoggedIn {
+  # Determine if user is logged in
+  #  NOTE: Right now, it does the same thing as IsAdmin
+  my ($u, $p) = ReadCookie();
+  if(@Passwords == 0) {         # If no password set...
+    return 1;
+  }
+  return scalar(grep(/^$p$/, @Passwords));
 }
 
 sub CanDiscuss {
@@ -1359,7 +1397,8 @@ sub DoAdmin {
   # Command? And can we run it?
   if($Page and $AdminActions{$Page}) {
     if($Page eq 'password' or IsAdmin()) {
-      &{$AdminActions{$Page}};			# Execute it.
+      &{$AdminActions{$Page}};	# Execute it.
+      print "<p><a href=\"javascript:history.go(-1)\">&larr; Back</a></p>";
     }
   } else {
     print '<p>You may:<ul><li><a href="'.$ShortUrl.
@@ -1399,8 +1438,9 @@ sub Init {
   InitConfig();
   InitVars();
   #InitDirs();		# Now called inside InitVars();
-  DoPostInit();
+  #DoPostInit();
   LoadPlugins();
+  DoPostInit();
   #InitTemplate();
 }
 
@@ -2018,6 +2058,14 @@ sub StringToFile {
   close(FILE);
 }
 
+sub AppendStringToFile {
+  # Appends string to file
+  my ($string, $file) = @_;
+  my $current = FileToString($file);
+  $current .= "\n$string";
+  StringToFile($current, $file);
+}
+
 sub FileToString {
   my $file = shift;
   #my @return = FileToArray($file);
@@ -2257,21 +2305,30 @@ sub DoRevert {
   }
   #my @vals = split(/=/,$ArgList);
   #if($vals[0] eq 'ver' and $vals[1]) {
-  if(GetParam('ver',0)) {
-    #if(-f "$ArchiveDir/$ShortDir/$Page.$vals[1]") {
-    if(-f "$ArchiveDir/$ShortDir/$Page.".GetParam('ver')) {
-      #my %f = GetPage("$ArchiveDir/$ShortDir/$Page.$vals[1]");
-      my %f = ReadDB("$ArchiveDir/$ShortDir/$Page.".GetParam('ver'));
-      my %t = GetPage($Page);
-      $FORM{summary} = "Revert to ".(FriendlyTime($f{ts}))[$TimeZone];
-      $FORM{revision} = $t{revision};
-      WritePage($Page, $f{text}, $UserName);
-      print "Reverted to page revision ".GetParam('ver'); #$vals[1]";
+  if(GetParam('confirm','no') eq "yes") {
+    if(GetParam('ver',0)) {
+      #if(-f "$ArchiveDir/$ShortDir/$Page.$vals[1]") {
+      if(-f "$ArchiveDir/$ShortDir/$Page.".GetParam('ver')) {
+	#my %f = GetPage("$ArchiveDir/$ShortDir/$Page.$vals[1]");
+	my %f = ReadDB("$ArchiveDir/$ShortDir/$Page.".GetParam('ver'));
+	my %t = GetPage($Page);
+	$FORM{summary} = "Revert to ".(FriendlyTime($f{ts}))[$TimeZone];
+	$FORM{revision} = $t{revision};
+	WritePage($Page, $f{text}, $UserName);
+	print "Reverted to page revision ".GetParam('ver'); #$vals[1]";
+      } else {
+	print "That revision doesn't exist!";
+      } 
     } else {
-      print "That revision doesn't exist!";
-    } 
+      print "Malformed request";
+    }
   } else {
-    print "Malformed request";
+    print "<p>Are you sure you want to revert the page <strong>&quot;".
+      "$Page&quot;</strong> to revision ".GetParam('ver').
+      "? This cannot be undone!</p>";
+    print "<p><a href='$ShortUrl?do=revert;page=$Page;ver=".GetParam('ver').
+      ";confirm=yes'>YES</a>";
+    print "&nbsp;&nbsp; <a href='javascript:history.go(-1)'>NO</a></p>";
   }
 }
 
@@ -2380,9 +2437,16 @@ sub DoRequest {
     return;
   }
 
+  # Can view?
+  unless(CanView()) {
+    ReDirect($Url."?do=admin;page=password");
+    return;
+  }
+
   # Random page? Do it!
   if(GetParam('do') eq 'random') {
-    DoRandom();
+    #DoRandom();
+    &{$Commands{'random'}};
     return;
   }
 
@@ -2647,8 +2711,9 @@ pre { border:0; font-size:10pt; }
 <div class="navbar">$DiscussText
 $EditText
 $RevisionsText
-<a title="Administration options" rel="nofollow" href="$ShortUrl?do=admin;page=admin">Admin</a>
-<a title="Random page" rel="nofollow" href="$ShortUrl?do=random;page=$Page">Random Page</a></div><span style="float:right;font-size:0.9em;"><strong>$SiteName</strong>
+$AdminText
+$RandomText
+</div><span style="float:right;font-size:0.9em;"><strong>$SiteName</strong>
 is powered by <em>Aneuch</em>.</span><br/>
 <span class="mtime">$MTime</span><br/>
 $SearchBox
