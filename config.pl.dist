@@ -80,8 +80,14 @@ $LockExpire = 60*5;
 # $MaxVisitorLog - This variable controls the maximum amount of entries in your
 #  visitor log file before it starts getting trimmed. The default value is
 #  1,000 entries, and is considered a sane default. Feel free to adjust this
-#  to your particular site's need.
+#  to your particular site's need. Set it to 0 to disable the visitor log.
 $MaxVisitorLog = 1000;
+
+# $CountPageVisits - This variable controls whether or not Aneuch will keep
+#  a count of how many times a page has been visited. Possible values are
+#  1 (true) and 0 (false). The default is true, and is considered a sane
+#  default.
+$CountPageVisits = 1;
 
 # $NewPage - This variable controls what is shown to users who visit a link
 #  within your wiki that leads to a page that has not been created yet. The

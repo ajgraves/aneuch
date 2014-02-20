@@ -45,7 +45,8 @@ $RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog
 @NavBarPages $BlockedList %PostingActions $HTTPStatus $PurgeRC %MaintActions
 $PurgeArchives $SearchPage $SearchBox $TemplateDir $Template $FancyUrls
 %QuestionAnswer $BannedContent %Param %SpecialPages $SurgeProtectionTime
-$SurgeProtectionCount @PostInitSubs $EditorLicenseText $AdminText $RandomText);
+$SurgeProtectionCount @PostInitSubs $EditorLicenseText $AdminText $RandomText
+$CountPageVisits $PageVisitFile);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
@@ -99,6 +100,8 @@ sub InitVars {
   $SurgeProtectionTime = 20 unless defined $SurgeProtectionTime;
   # $SurgeProtectionCount is the number of hits in the defined amount of time
   $SurgeProtectionCount = 20 unless defined $SurgeProtectionCount;
+  # Count the number of visits to each page
+  $CountPageVisits = 1 unless defined $CountPageVisits;
 
   # If $FancyUrls, remove $ShortScriptName from $ShortUrl
   if(($FancyUrls) and ($ShortUrl =~ m/$ShortScriptName/)) {
@@ -287,6 +290,7 @@ sub InitVars {
   RegAdminPage('block', 'Block users', \&DoAdminBlock);
   RegAdminPage('bannedcontent', 'Ban certain types of content',
    \&DoAdminBannedContent);
+  RegAdminPage('css', "Edit the site's style (CSS)", \&DoAdminCSS);
 
   # Register POSTing actions
   RegPostAction('login', \&DoPostingLogin);		# Login
@@ -295,6 +299,7 @@ sub InitVars {
   RegPostAction('blocklist', \&DoPostingBlockList);	# Block list
   RegPostAction('commenting', \&DoPostingSpam);		# Spam submissions
   RegPostAction('bannedcontent', \&DoPostingBannedContent); # Banned content
+  RegPostAction('css', \&DoPostingCSS);			# Style/CSS
 
   # Maintenance actions FIXME: No fancy Reg* sub (yet)
   %MaintActions = (
@@ -316,22 +321,33 @@ sub DoPostInit {
   }
 }
 
-sub InitTemplate {
-  # If a template is not specified, use the built-in default
-  if(!$Template or !-d "$TemplateDir/$Template") {
-    chomp(my @TEMPLATE = <DATA>);	# Read from DATA
-    ($Header, $Footer) = split(/!!CONTENT!!/, join("\n", @TEMPLATE));
-  } else {
-    $Header = FileToString("$TemplateDir/$Template/head.html");
-    $Footer = FileToString("$TemplateDir/$Template/foot.html");
-  }
-}
-
 sub DoHeader {
   if(!$Template or !-d "$TemplateDir/$Template") {
-    chomp(my @TEMPLATE = <DATA>);
-    ($Header, $Footer) = split("!!CONTENT!!", join("\n", @TEMPLATE));
-    print Interpolate($Header);
+    #chomp(my @TEMPLATE = <DATA>);
+    #($Header, $Footer) = split("!!CONTENT!!", join("\n", @TEMPLATE));
+    #print Interpolate($Header);
+    print "<!DOCTYPE html>\n".
+      '<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">'.
+      "<head><title>$PageName - $SiteName</title>\n".
+      "<meta name=\"generator\" content=\"Aneuch $VERSION\" />\n".
+      '<style type="text/css">'.DoCSS().
+      "</style></head>\n<body>\n<div id=\"container\">\n".
+      "<div id=\"header\"><div id=\"search\">".SearchForm().
+      "</div>\n".
+      "<a title=\"Return to $DefaultPage\" href=\"$Url\">$SiteName</a>: <h1>";
+    if(PageExists(GetParam('page',''))) {
+      print "<a title=\"Search for references to $SearchPage\" ".
+	"rel=\"nofollow\" href=\"$ShortUrl?do=search;search=".
+	"$SearchPage\">$PageName</a>";
+    } else {
+      print "$PageName";
+    }
+    print "</h1>\n</div>\n<div class=\"navigation\">\n<ul>$NavBar</ul></div>".
+      "<div id=\"content\"";
+    if((CanEdit()) and (!IsDiscussionPage()) and (!GetParam('do'))) {
+      print " ondblclick=\"window.location.href='$Url?do=edit;page=$Page'\"";
+    }
+    print '><span id="top"></span>';
   } else {
     if(-f "$TemplateDir/$Template/head.pl") {
       do "$TemplateDir/$Template/head.pl";
@@ -345,7 +361,18 @@ sub DoFooter {
   if(!$Template or !-d "$TemplateDir/$Template") {
     #chomp(my @TEMPLATE = <DATA>);
     #print Interpolate((split(/!!CONTENT!!/, join("\n", @TEMPLATE)))[1]);
-    print Interpolate($Footer);
+    #print Interpolate($Footer);
+    print '<span id="bottom"></span></div> <!-- content -->'.
+      '<div class="navigation">'."<ul><li>$DiscussText</li>".
+      "<li>$EditText</li><li>$RevisionsText</li><li>$AdminText</li>".
+      "<li>$RandomText</li></ul>".'<div id="identifier"><strong>'.
+      $SiteName.'</strong> is powered by <em>Aneuch</em>.</div>'.
+      '</div> <!-- navigation --><div id="footer"><div id="mtime">';
+    if(PageExists($Page)) {
+      print Commify(GetPageViewCount($Page))." view(s).&nbsp;&nbsp;";
+    }
+    print "$MTime</div>$PostFooter</div> <!-- footer --></div> ".
+      "<!-- container --></html>";
   } else {
     if(-f "$TemplateDir/$Template/foot.pl") {
       do "$TemplateDir/$Template/foot.pl";
@@ -356,8 +383,16 @@ sub DoFooter {
 }
 
 sub DoCSS {
-  # Return default CSS, unless a theme is specified, or custom CSS is in place
-  
+  # Style sheet for the template. This is in it's own sub to facilitate
+  #  CSS Customization in the future.
+  if(-f "$DataDir/style.css") {
+    return FileToString("$DataDir/style.css");
+  } else {
+    my $data_pos = tell DATA;	# Find the position of __DATA__
+    chomp(my @CSS = <DATA>);	# Read in __DATA__
+    seek DATA, $data_pos, 0;	# So we can re-read __DATA__ later
+    return join("\n", @CSS);
+  }
 }
 
 sub MarkupBuildLink {
@@ -580,6 +615,12 @@ sub MarkupHelp {
     '<dt>Extras</dt><dd>---- (horizonal rule), ~~~~ (signature)</dd></div>';
 }
 
+sub Commify {
+  local $_  = shift;
+  1 while s/^([-+]?\d+)(\d{3})/$1,$2/;
+  return $_;
+}
+
 sub Trim {
   # Trim removes all leading and trailing whitespace
   my $string = shift;
@@ -712,6 +753,21 @@ sub GetPage {
   return ReadDB("$PageDir/$archive/$file");
 }
 
+sub GetPageViewCount {
+  my $page = shift;
+  my %f = ReadDB($PageVisitFile);
+  return ($f{$page}) ? $f{$page} : 0;
+}
+
+sub GetTotalViewCount {
+  my $sum;
+  my %f = ReadDB($PageVisitFile);
+  for(keys %f) {
+    $sum += $f{$_};
+  }
+  return $sum;
+}
+
 sub GetArchivePage {
   my ($file, $revision) = shift;
   # Get short dir
@@ -736,6 +792,7 @@ sub InitDirs {
   $RecentChangesLog = "$DataDir/rc.log";
   $BlockedList = "$DataDir/banned";
   $BannedContent = "$DataDir/bannedcontent";
+  $PageVisitFile = "$DataDir/visitcount";
 }
 
 sub LoadPlugins {
@@ -1213,7 +1270,11 @@ sub DoAdminIndex {
   print "<h3>" . @indx . " pages found.</h3><p>";
   print "<ol>";
   foreach my $pg (@indx) {
-    print "<li><a href=\"$ShortUrl$pg\">$pg</a></li>";
+    print "<li><a href=\"$ShortUrl$pg\">$pg</a>";
+    if($CountPageVisits) {
+      print " <small><em>(".Commify(GetPageViewCount($pg))." views)</em></small>";
+    }
+    print "</li>";
   }
   print "</ol></p>";
 }
@@ -1393,6 +1454,30 @@ sub DoAdminBannedContent {
     "</textarea><br/><input type='submit' value='Save' /></form>";
 }
 
+sub DoAdminCSS {
+  if(GetParam('action') eq "restore") {
+    if(GetParam('confirm') eq "yes") {
+      unlink "$DataDir/style.css";
+      print "<p>Default stylesheet has been restored.</p>";
+    } else {
+      print "<p>Are you sure you want to restore the default CSS? This cannot".
+	" be undone.</p>";
+      print "<p><a href='$ShortUrl?do=admin;page=css;action=restore;".
+	"confirm=yes'>YES</a>&nbsp;&nbsp;<a href='javascript:history.go(-1)".
+	"'>NO</a></p>";
+    }
+  } else {
+    my $content = DoCSS();
+    print "<p>You may edit your site's CSS here. If you need to, you may ".
+      "<a href='$ShortUrl?do=admin;page=css;action=restore'>restore the ".
+      "default</a> configuration.</p>";
+    print "<form action='$ScriptName' method='post'>".
+      "<input type='hidden' name='doing' value='css' />".
+      "<textarea name='css' rows='30' cols='100'>".$content.
+      "</textarea><br/><input type='submit' value='Save' /></form>";
+  }
+}
+
 sub DoAdmin {
   # Command? And can we run it?
   if($Page and $AdminActions{$Page}) {
@@ -1411,8 +1496,9 @@ sub DoAdmin {
       }
     }
     print '</ul></p>';
-    print '<p>This site has ' . scalar(ListAllPages()) . ' pages and '.
-      CountAllRevisions().' revisions.</p>';
+    print '<p>This site has ' . Commify(scalar(ListAllPages())) . ' pages, '.
+      Commify(CountAllRevisions()).' revisions, and '.
+      Commify(GetTotalViewCount()).' page views.</p>';
   }
 }
 
@@ -1749,11 +1835,13 @@ sub DoHistory {
     my $charcount = $scharcount - ($f{text} =~ tr/ / /);
     print "<p><strong>$Page</strong><br/>".
       "The most recent revision number of this page is $f{'revision'}. ".
+      "It has been viewed ".Commify(GetPageViewCount($Page))." time(s). ".
       "It was last modified ".(FriendlyTime($f{'ts'}))[$TimeZone].
       " by ".QuoteHTML($f{author}).". ".
-      "There are $linecount lines of text, $wordcount words, ".
-      "$scharcount characters with spaces and $charcount without. ".
-      "The total page size (including metadata) is ".(stat("$PageDir/$ShortDir/$Page"))[7]." bytes.";
+      "There are ".Commify($linecount)." lines of text, ".Commify($wordcount).
+      " words, ".Commify($scharcount)." characters with spaces and ".
+      Commify($charcount)." without. ".
+      "The total page size (including metadata) is ".Commify((stat("$PageDir/$ShortDir/$Page"))[7])." bytes.";
     print "</p>";
     #print "<form action='$ScriptName' method='get'>";
     print "<form action='$ShortUrl' method='get'>";
@@ -1934,6 +2022,13 @@ sub DoPostingBannedContent {
   ReDirect($Url."?do=admin;page=bannedcontent");
 }
 
+sub DoPostingCSS {
+  if(IsAdmin()) {
+    StringToFile($FORM{'css'},"$DataDir/style.css");
+  }
+  ReDirect($Url."?do=admin;page=css");
+}
+
 sub DoPosting {
   my $action = $FORM{doing};
   # Remove all slashes from file name (if any)
@@ -1952,27 +2047,38 @@ sub DoVisit {
   #my $mypage = (GetParam('search')) ? GetParam('search') : $Page;
   my $mypage = (GetParam('do') eq 'search') ? GetParam('search','') : $Page;
   $mypage =~ s/ /+/g;
-  my $logentry = "$UserIP\t$TimeStamp\t$mypage";
-  #if($PageRevision) { $command .= "$PageRevision"; }
-  #if($command) { $logentry .= " ($command)"; }
-  if(GetParam('do')) { 
-    $logentry .= " (".GetParam('do');
-    if($PageRevision) { $logentry .= "$PageRevision"; }
-    $logentry .= ")";
+  if($MaxVisitorLog > 0) {
+    my $logentry = "$UserIP\t$TimeStamp\t$mypage";
+    #if($PageRevision) { $command .= "$PageRevision"; }
+    #if($command) { $logentry .= " ($command)"; }
+    if(GetParam('do')) { 
+      $logentry .= " (".GetParam('do');
+      if($PageRevision) { $logentry .= "$PageRevision"; }
+      $logentry .= ")";
+    }
+    if($HTTPStatus) { 
+      chomp(my $tv = $HTTPStatus);
+      $tv =~ s/Status: //;
+      $tv = (split(/ /,$tv))[0];
+      $logentry .= " ($tv)";
+    }
+    $logentry .= "\t$UserName";
+    my @rc;
+    open(LOGFILE,">>$VisitorLog");
+    flock(LOGFILE, LOCK_EX);		# Lock, exclusive
+    seek(LOGFILE, 0, SEEK_END);		# In case data was appeded after lock
+    print LOGFILE "$logentry\n";
+    close(LOGFILE);			# Lock is removed upon close
   }
-  if($HTTPStatus) { 
-    chomp(my $tv = $HTTPStatus);
-    $tv =~ s/Status: //;
-    $tv = (split(/ /,$tv))[0];
-    $logentry .= " ($tv)";
+  if($CountPageVisits and PageExists($Page) and !GetParam('do',0)) {
+    my %f = ReadDB($PageVisitFile);
+    if(defined $f{$Page}) {
+      $f{$Page}++;
+    } else {
+      $f{$Page} = 1;
+    }
+    WriteDB($PageVisitFile, \%f);
   }
-  $logentry .= "\t$UserName";
-  my @rc;
-  open(LOGFILE,">>$VisitorLog");
-  flock(LOGFILE, LOCK_EX);		# Lock, exclusive
-  seek(LOGFILE, 0, SEEK_END);		# In case data was appeded after lock
-  print LOGFILE "$logentry\n";
-  close(LOGFILE);			# Lock is removed upon close
 }
 
 sub DoMaintPurgeTemp {
@@ -2043,8 +2149,8 @@ sub DoMaintTrimVisit {
 
 sub DoMaint {
   # Run each maintenance task
-  my $key;
-  foreach $key (keys %MaintActions) {	# Step through list, and...
+  #my $key;
+  foreach my $key (keys %MaintActions) {	# Step through list, and...
     &{$MaintActions{$key}};		# Execute
   }
 }
@@ -2471,14 +2577,9 @@ sub DoRequest {
   }
 
   # Build $SearchPage
-  #if(PageExists($Page)) {
-  #  $SearchPage = $Page;
-  #} else {
-    $SearchPage = $PageName;    # SearchPage is PageName with + for spaces
-    $SearchPage =~ s/Search for: //;
-    $SearchPage =~ s/ /+/g;     # Change spaces to +
-  #}
-
+  $SearchPage = $PageName;    # SearchPage is PageName with + for spaces
+  $SearchPage =~ s/Search for: //;
+  $SearchPage =~ s/ /+/g;     # Change spaces to +
 
   # HTTP Header
   print $HTTPStatus . "Content-type: text/html\n\n";
@@ -2493,9 +2594,7 @@ sub DoRequest {
     &{$Commands{$Param{do}}};
   } else {
     if(! -f "$PageDir/$ShortDir/$Page") {	# Doesn't exist!
-      #if(!IsSpecialPage) {
-	print $NewPage;
-      #}
+      print $NewPage;
     } else {
       %Filec = GetPage($Page);
       if(exists &Markup) {	# If there's markup defined, do markup
@@ -2531,127 +2630,209 @@ DoVisit();	# Log visitor
 DoMaint();	# Run maintenance commands
 1;		# In case we're being called elsewhere
 
-# Everything below the DATA line is the default "theme"
+# Everything below the DATA line is the default CSS
 
 __DATA__
-<!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
-<head>
-<title>$PageName - $SiteName</title>
-<link rel="alternate" type="application/wiki" title="Edit this page" href="$Url?do=edit;page=$Page" />
-<meta name="robots" content="INDEX,FOLLOW" />
-<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
-<meta name="generator" content="Aneuch $VERSION" />
-<style type="text/css">
-body {
-    background:#fff;
-    padding:1% 3%;
-    margin:0;
-    font-family: "Bookman Old Style", "Times New Roman", serif;
-    font-size: 12pt;
-}
-a {
-    text-decoration:none;
-    font-weight:bold;
-    color: blue; /*#c00;*/
-}
-/*a:visited { color:#c55; }*/
-div.header h1 a:hover, h1 a:hover, h2 a:hover, h3 a:hover, h4 a:hover,
-a:hover, span.caption a.image:hover {
-    background:#000000;
-    color:#FFFFFF;
-}
-a.image:hover {
-    background:inherit;
-}
-a.image:hover img {
-    background:#ccc;
-}
-div.header h1 {
-    font-size:xx-large; margin-top:1ex;
-    border-bottom: 5px solid #000;
-}
-div.header h1 a {
-    color: gray;
-}
-hr {
-    border:none;
-    color:black;
-    background-color:#000;
-    height:2px; 
-    margin-top:2ex;
-}
-div.footer hr { 
-  height:4px;
-  clear:both;
-}
-div.wrapper p {
-  text-align:justify;
-}
-a.external {
-  color: #c00; /*blue;*/
-}
-a.external:hover {
-  color:white;
-  background-color:red;
+html
+{
+  font-family: sans-serif;
+  font-size: 1em;
 }
 
-textarea {
-  border-color:black;
-  border-style:solid;
-  border-width:thin;
-  padding: 3px;
-  width: 100%;
+body
+{
+  padding:0;
+  margin:0;
 }
 
-.navbar {
+pre
+{
+  overflow: auto;
+  word-wrap: normal;
+  border: 1px solid rgb(204, 204, 204);
+  border-radius: 2px 2px 2px 2px;
+  box-shadow: 0px 0px 0.5em rgb(204, 204, 204) inset;
+  padding: 0.7em 1em;
+  font-family: Consolas,"Andale Mono WT","Andale Mono","Bitstream Vera Sans Mono","Nimbus Mono L",Monaco,"Courier New",monospace;
+  font-size: 1em;
+  direction: ltr;
+  text-align: left;
+  background-color: rgb(251, 250, 249);
+  color: rgb(51, 51, 51);
+}
+
+#container
+{
+  /*margin: 0 30px;*/
+  background: #fff;
+}
+
+#header
+{
+  /*background: #ccc;*/
+  background: rgb(230, 234, 240); /*rgb(243,243,243);*/
+  border:1px solid rgb(221,221,221);
+  padding: 15px;
+  color: rgb(68, 119, 255);
+}
+
+#header h1
+{
+  margin: 0;
+  display:inline;
+  color: rgb(68, 119, 255);
+  font-size: 20pt;
+}
+
+#header a {
+  text-decoration: none;
+  color: rgb(68, 119, 255);
+}
+
+#header h1 a
+{
+  color: rgb(68, 119, 255);
+  text-decoration:none;
+}
+
+#header a:hover {
+  color: green;
+  text-decoration: underline;
+}
+
+#search {
+  float:right;
+  clear:left;
+}
+
+.navigation
+{
   float: left;
+  width: 100%;
+  background: #333;
+  /*background:rgb(214, 228, 249);*/
 }
 
-.navbar a {
-  padding-right: 1ex;
-}
-
-.navbar ul {
+.navigation ul
+{
+  margin: 0;
   padding: 0;
-  margin: 0;
 }
 
-.navbar li {
-  display: inline;
+.navigation ul li
+{
   list-style-type: none;
-  padding-right: 1ex;
-  margin: 0;
+  display: inline;
 }
 
-.mtime {
-  font-size:0.8em;
-  color:gray;
+.navigation li a
+{
+  display: block;
+  float: left;
+  padding: 5px 10px;
+  color: #fff;
+  text-decoration: none;
+  border-right: 1px solid #fff;
 }
 
-.mtime form {
-  padding-top: 10px;
+.navigation li a:hover {
+  background: rgb(129, 187, 242);/*#383;*/
+  color: #000;
 }
 
-form.searchform {
-  /*display: inline;*/
+#identifier {
+  float:right;
+  font-size:0.9em;
+  color:white;
+  padding:5px;
 }
 
-div.wrapper img {
+#content
+{
+  clear: left;
+  padding: 20px;
+  text-align:justify;
+  position:relative;
+}
+
+#content img
+{
   padding:5px;
   margin:10px;
+  /*border:1px solid rgb(221,221,221);
+  background-color: rgb(243,243,243);
+  border-radius: 3px 3px 3px 3px;*/
+}
+
+#content a
+{
+  color:rgb(68, 119, 255);
+  text-decoration: none;
+}
+
+#content a:hover
+{
+  text-decoration: underline;
+  color:green;
+}
+
+#content a.external:hover
+{
+  text-decoration: underline;
+  color:red;
+}
+
+#content h2
+{
+  color: #000;
+  font-size: 160%;
+  margin: 0 0 .5em;
+}
+
+#content hr {
+  border:none;
+  color:black;
+  background-color:#000;
+  height:2px; 
+  margin-top:2ex;
+}
+
+#markup-help
+{
+  border: 1px solid #8CACBB;
+  background: #EEEEFF;
+  padding: 10px;
+  margin-top: 20px;
+  font-size: 0.9em;
+  font-family: "Courier New", Courier, monospace;
+}
+
+#markup-help dt
+{
+  font-weight: bold;
+}
+
+#footer
+{
+  /*background: #ccc;
+  text-align: right;*/
+  background:rgb(230, 234, 240); /*rgb(243,243,243);*/
   border:1px solid rgb(221,221,221);
-  background-color: rgb(243,243,243);
-  border-radius: 3px 3px 3px 3px;
+  padding: 15px;
+  height: 1%;
+  clear:left;
 }
 
-h1.hr, h2.hr, h3.hr, h4.hr, h5.hr {
-  border-bottom: 2px solid rgb(0,0,0);
+#mtime {
+  color:gray;
+  font-size:0.75em;
+  float:right;
+  font-style: italic;
 }
 
-.toc {
+#content .toc {
   /*float:right;*/
-  background-color: rgb(243,243,243);
+  background-color: rgb(230, 234, 240);
   padding:5px;
   margin:10px;
   border: 1px solid rgb(221,221,221);
@@ -2662,8 +2843,19 @@ h1.hr, h2.hr, h3.hr, h4.hr, h5.hr {
   right:0;
 }
 
-.wrapper {
-  position: relative;
+textarea {
+  border-color:black;
+  border-style:solid;
+  border-width:thin;
+  padding: 3px;
+  width: 100%;
+}
+
+input {
+  border-color:black;
+  border-style:solid;
+  border-width:thin;
+  padding: 3px;
 }
 
 .preview {
@@ -2685,42 +2877,3 @@ h1.hr, h2.hr, h3.hr, h4.hr, h5.hr {
 .new {
   background-color: lightgreen;
 }
-
-@media print {
-body { font:11pt "Neep", "Arial", sans-serif; }
-a, a:link, a:visited { color:#000; text-decoration:none; font-style:oblique; font-weight:normal; }
-h1 a, h2 a, h3 a, h4 a { font-style:normal; }
-a.edit, div.footer, div.refer, form, span.gotobar, a.number span { display:none; }
-a[class="url number"]:after, a[class="inter number"]:after { content:"[" attr(href) "]"; }
-a[class="local number"]:after { content:"[" attr(title) "]"; }
-img[smiley] { line-height: inherit; }
-pre { border:0; font-size:10pt; }
-}
-</style>
-</head>
-<body>
-<div class="header">
-<div class="navbar">$NavBar</div><br/>
-<h1><a title="Search for references to $SearchPage" rel="nofollow" href="$ShortUrl?do=search;search=$SearchPage">$PageName</a></h1></div>
-<div class="wrapper" ondblclick="window.location.href='$Url?do=edit;page=$Page'">
-!!CONTENT!!
-</div>
-<div class="close"></div>
-<div class="footer">
-<hr/>
-<div class="navbar">$DiscussText
-$EditText
-$RevisionsText
-$AdminText
-$RandomText
-</div><span style="float:right;font-size:0.9em;"><strong>$SiteName</strong>
-is powered by <em>Aneuch</em>.</span><br/>
-<span class="mtime">$MTime</span><br/>
-$SearchBox
-$PostFooter
-</div>
-<div class="debug">
-$DebugMessages
-</div>
-</body>
-</html>
