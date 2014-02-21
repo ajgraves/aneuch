@@ -1735,7 +1735,7 @@ sub DoSearch {
       $result{$fn} = '<small>Last modified '.
 	(FriendlyTime($F{ts}))[$TimeZone]."</small><br/>";
     }
-    while($F{text} =~ m/(.{0,25}($search|$altsearch).{0,25})/gsi) {
+    while($F{text} =~ m/(.{0,75}($search|$altsearch).{0,75})/gsi) {
       if(!$linkedtopage) {
 	$linkedtopage = 1;
 	$result{$fn} = '<small>Last modified '.
