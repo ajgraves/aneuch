@@ -51,7 +51,7 @@ my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
 
-$VERSION = '0.30';	# Set version number
+$VERSION = '0.40';	# Set version number
 
 # Subs
 sub InitConfig  {
@@ -80,7 +80,8 @@ sub InitVars {
   $DefaultPage = 'HomePage' unless $DefaultPage; # Default page
   @Passwords = qw() unless @Passwords;		# No password by default
   $SiteMode = 0 unless $SiteMode;		# 0=All, 1=Discus only, 2=None
-  $DiscussPrefix = 'Discuss_' unless $DiscussPrefix; # Discussion page prefix
+  # Discussion page prefix
+  $DiscussPrefix = 'Discuss_' unless defined $DiscussPrefix;
   $SiteName = 'Aneuch' unless $SiteName;	# Default site name
   $CookieName = 'Aneuch' unless $CookieName;	# Default cookie name
   $TimeZone = 0 unless $TimeZone;		# Default to GMT, 1=localtime
@@ -194,20 +195,22 @@ sub InitVars {
 
   # Discuss, edit links
   if(!GetParam('do')) {
-    if($Page !~ m/^$DiscussPrefix/) {	# Not a discussion page
-      $DiscussLink = $ShortUrl . $DiscussPrefix . $Page;
-      $DiscussText = $DiscussPrefix;
-      $DiscussText =~ s/_/ /g;
-      $DiscussText .= $Page . " (".DiscussCount().")";
-      $DiscussText = '<a title="'.$DiscussText.'" href="'.$DiscussLink.'">'.
-	$DiscussText.'</a>';
-    } else {				# Is a discussion page
-      $DiscussLink = $Page;
-      $DiscussLink =~ s/^$DiscussPrefix//;	# Strip discussion prefix
-      $DiscussText = $DiscussLink;
-      $DiscussLink = $ShortUrl . $DiscussLink;
-      $DiscussText = '<a title="Return to '.$DiscussText.'" href="'.
-	$DiscussLink.'">'.$DiscussText.'</a>';
+    if($DiscussPrefix) {
+      if($Page !~ m/^$DiscussPrefix/) {	# Not a discussion page
+	$DiscussLink = $ShortUrl . $DiscussPrefix . $Page;
+	$DiscussText = $DiscussPrefix;
+	$DiscussText =~ s/_/ /g;
+	$DiscussText .= $Page . " (".DiscussCount().")";
+	$DiscussText = '<a title="'.$DiscussText.'" href="'.$DiscussLink.'">'.
+	  $DiscussText.'</a>';
+      } else {				# Is a discussion page
+	$DiscussLink = $Page;
+	$DiscussLink =~ s/^$DiscussPrefix//;	# Strip discussion prefix
+	$DiscussText = $DiscussLink;
+	$DiscussLink = $ShortUrl . $DiscussLink;
+	$DiscussText = '<a title="Return to '.$DiscussText.'" href="'.
+	  $DiscussLink.'">'.$DiscussText.'</a>';
+      }
     }
     # Edit link
     if(CanEdit()) {
@@ -273,6 +276,7 @@ sub InitVars {
   RegCommand('spam', \&DoSpam);		# For spam submissions
   RegCommand('recentchanges', \&DoRecentChanges); # Just in case...
   RegCommand('index', \&DoAdminIndex);	# Index of all pages
+  RegCommand('links', \&DoLinkedPages);	# Pages that link here
 
   # Now register the admin actions (?do=admin;page= directives)
   # 'password' has to be set by itself, since technically there isn't a menu
@@ -309,7 +313,9 @@ sub InitVars {
 
   # Register the "Special Pages"
   RegSpecialPage('RecentChanges', \&DoRecentChanges);	# Recent Changes
-  RegSpecialPage("$DiscussPrefix.*", \&DoDiscuss);	# Discussion pages
+  if($DiscussPrefix) {
+    RegSpecialPage("$DiscussPrefix.*", \&DoDiscuss);	# Discussion pages
+  }
 }
 
 sub DoPostInit {
@@ -363,8 +369,12 @@ sub DoFooter {
     #print Interpolate((split(/!!CONTENT!!/, join("\n", @TEMPLATE)))[1]);
     #print Interpolate($Footer);
     print '<span id="bottom"></span></div> <!-- content -->'.
-      '<div class="navigation">'."<ul><li>$DiscussText</li>".
-      "<li>$EditText</li><li>$RevisionsText</li><li>$AdminText</li>".
+      '<div class="navigation">'."<ul>";
+    # If we want discussion pages
+    if($DiscussPrefix) {
+      print "<li>$DiscussText</li>";
+    }
+    print "<li>$EditText</li><li>$RevisionsText</li><li>$AdminText</li>".
       "<li>$RandomText</li></ul>".'<div id="identifier"><strong>'.
       $SiteName.'</strong> is powered by <em>Aneuch</em>.</div>'.
       '</div> <!-- navigation --><div id="footer"><div id="mtime">';
@@ -1383,6 +1393,9 @@ sub DoAdminListVisitors {
 	print " was spamming the page <strong>".QuoteHTML($p[0])."</strong>";
       } elsif($p[1] eq "index") {
 	print " was viewing the page index";
+      } elsif($p[1] eq "links") {
+	print " was viewing the page links to <strong>".QuoteHTML($p[0]).
+	  "</strong>";
       } else {
 	my $tv = $p[1];
 	$tv =~ s/\(//;
@@ -1707,6 +1720,24 @@ sub DoRecentChanges {
   }
 }
 
+sub DoLinkedPages {
+  # There are a couple of ways we can do this. We can call DoSearch() on the
+  #  regex below, which is slow, or we can use grep -P which is fast (but
+  #  might not be portable).
+  my $searchparam = $Page;
+  $searchparam =~ s/_/[ _]/g;
+  $Param{'search'} = '\[\['.$searchparam.'[|\]]';
+  print "<h2>Pages that link to '<a href=\"${ShortUrl}$Page\">$Page</a>'</h2>";
+  #DoSearch();
+  chomp(my @files = `grep -Prli '$Param{'search'}' $PageDir`);
+  s/$PageDir\/.{1}\/// for @files;
+  print "<ul>";
+  foreach (@files) {
+    print "<li><a href=\"${ShortUrl}$_\">$_</a></li>";
+  }
+  print "</ul>";
+}
+
 sub DoSearch {
   ## NOTE: /x was removed from the match regex's below as it broke search
   ##   for terms that included spaces... Not sure why I had /x to begin with.
@@ -1843,6 +1874,8 @@ sub DoHistory {
       Commify($charcount)." without. ".
       "The total page size (including metadata) is ".Commify((stat("$PageDir/$ShortDir/$Page"))[7])." bytes.";
     print "</p>";
+    print "<p><a href=\"$ShortUrl?do=links;page=$Page\">".
+      "See all pages that link to $Page</a></p>";
     #print "<form action='$ScriptName' method='get'>";
     print "<form action='$ShortUrl' method='get'>";
     print "<input type='hidden' name='do' value='diff' />";
@@ -2512,7 +2545,7 @@ sub DoSurgeProtection {
 
 sub IsDiscussionPage {
   # Determines if the current page is a discussion page
-  if($Page =~ m/^$DiscussPrefix/) {
+  if($Page =~ m/^$DiscussPrefix/ and $DiscussPrefix ne '') {
     return 1;
   } else {
     return 0;
