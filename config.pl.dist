@@ -154,7 +154,7 @@ $PostFooter = '';
 $FancyUrls = 1;
 
 # %QuestionAnswer - This hash holds the questions/answers for the anti-spam
-#  textcha. Questions will only be asked of those who are no authenticated.
+#  textcha. Questions will only be asked of those who are not authenticated.
 #  If you set this hash to be empty, no question will ever be asked (be warned
 #  that this will open your wiki up to getting spammed if you allow open
 #  editing). The default set of questions is sane, however you may want to 
