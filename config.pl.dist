@@ -187,12 +187,15 @@ $SurgeProtectionCount = 20;
 #  sane default.
 $EditorLicenseText = '';
 
-# $Header and $Footer - These variables are used in "theming" your site. If
-#  either one is blank, the default theme will be used. You can either fill
-#  the variables with content, or import the contents of a file into each.
-#  I leave that as an exercise for the reader. Caution: There be dragons ahead!
-# $Header = '';
-# $Footer = '';
+# $UploadsAllowed - This variable sets whether or not files can be uploaded
+#  to the wiki. The default value is 0, which disables uploads, and is
+#  considered a sane default. Set it to 1 to allow file uploads.
+$UploadsAllowed = 0;
+
+# @UploadTypes - This array holds the MIME types that can be uploaded if file
+#  uploads are allowed. The default is set to include 'image/jpeg',
+#  'image/gif', and 'image/png', and is considered a sane default.
+@UploadTypes = qw(image/gif image/png image/jpeg);
 
 # $ConfFile - Note that this variable is optional. Aneuch will use the current
 #  directory that it resides in to find the configuration file. However, it
