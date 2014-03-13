@@ -130,6 +130,7 @@ sub InitVars {
 
   # Get page name that is being requested
   $Page = $q->path_info;
+  if($Page =~ m/^\/{1,}/) { $Page =~ s/^\/{1,}//; }
   if($ENV{'QUERY_STRING'} and $ENV{'QUERY_STRING'} !~ /=/ and !$Page) {
     $Page = $ENV{'QUERY_STRING'};
     $ENV{'QUERY_STRING'} = '';
@@ -288,6 +289,7 @@ sub InitVars {
   RegAdminPage('bannedcontent', 'Ban certain types of content',
    \&DoAdminBannedContent);
   RegAdminPage('css', "Edit the site's style (CSS)", \&DoAdminCSS);
+  RegAdminPage('files', "List uploaded files", \&DoAdminListFiles);
 
   # Register POSTing actions
   RegPostAction('login', \&DoPostingLogin);		# Login
@@ -462,11 +464,11 @@ sub MarkupImage {
   my ($align, $alt, $img);
   if($data =~ m/^(left|right):/) {
     my @dd = split(/:/,$data);
-    $align = $dd[0];
+    $align = shift(@dd); #$dd[0];
     #if($dd[1] =~ m/\|/) {
     #  ($img,$alt) = split(/\|/,$dd[1]);
     #} else {
-    $img = $dd[1];
+    $img = join(":", @dd); #$dd[1];
     #}  
   } else {
     $img = $data;
@@ -476,7 +478,7 @@ sub MarkupImage {
   }
   my $return = '<img src="';
   if(PageExists(ReplaceSpaces($img))) {
-    $return .= "$ShortUrl?do=download;page=$img\" ";
+    $return .= "$ShortUrl?do=download;page=".ReplaceSpaces($img)."\" ";
   } else {
     $return .= "$img\" ";
   }
@@ -1658,6 +1660,22 @@ sub DoAdminCSS {
       "<textarea name='css' rows='30' cols='100'>".$content.
       "</textarea><br/><input type='submit' value='Save' /></form>";
   }
+}
+
+sub DoAdminListFiles {
+  print $q->p("Here is a list of pages that contain uploaded files:");
+  #chomp(my @files = `grep -Prli '^text: #FILE ' $PageDir`);
+  my @files;
+  open(FL, "grep -Prli '^text: #FILE ' $PageDir 2>/dev/null |");
+  while(<FL>) {
+    push @files, $1 if m#^$PageDir/.{1}/(.*)$#;
+  }
+  close(FL);
+  print "<ul>";
+  foreach (@files) {
+    print "<li><a href=\"${ShortUrl}$_\">$_</a></li>";
+  }
+  print "</ul>";
 }
 
 sub DoAdmin {
@@ -2912,7 +2930,8 @@ sub DoRequest {
     #&{$Commands{$Param{do}}};
     &{$Commands{GetParam('do')}};
   } else {
-    if(! -f "$PageDir/$ShortDir/$Page") {	# Doesn't exist!
+    #if(! -f "$PageDir/$ShortDir/$Page") {	# Doesn't exist!
+    if(!PageExists($Page)) {
       print $NewPage;
     } else {
       %Filec = GetPage($Page);
@@ -2920,7 +2939,7 @@ sub DoRequest {
       if(PageIsFile($Page)) {
 	print $q->p("This page contains a file:");
 	print $q->pre($q->a({-href=>"$ShortUrl?do=download;page=$Page"},
-	  "$Page"));
+	  ($Filec{filename}) ? $Filec{filename} : $Page));
       } elsif(exists &Markup) {	# If there's markup defined, do markup
 	print Markup($Filec{text});
       } else {
