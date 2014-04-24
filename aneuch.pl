@@ -38,7 +38,7 @@ local $| = 1;		# Do not buffer output
 use vars qw($DataDir $SiteName $Page $ShortPage @Passwords $PageDir $ArchiveDir
 $ShortUrl $SiteMode $ScriptName $ShortScriptName $Header $Footer $PluginDir 
 $Url $DiscussText $DiscussPrefix $DiscussLink $DefaultPage $CookieName 
-$PageName %FORM $TempDir @Messages $command $contents @Plugins $TimeStamp
+$PageName $TempDir @Messages $command $contents @Plugins $TimeStamp
 $PostFooter $TimeZone $VERSION $EditText $RevisionsText $NewPage $NewComment
 $NavBar $ConfFile $UserIP $UserName $VisitorLog $LockExpire %Filec $MTime
 $RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog
@@ -48,7 +48,7 @@ $PurgeArchives $SearchPage $SearchBox $TemplateDir $Template $FancyUrls
 %QuestionAnswer $BannedContent %Param %SpecialPages $SurgeProtectionTime
 $SurgeProtectionCount @PostInitSubs $EditorLicenseText $AdminText $RandomText
 $CountPageVisits $PageVisitFile $q $Hostname @RawHandlers $UploadsAllowed
-@UploadTypes);
+@UploadTypes %ShortCodes $BlogPattern);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
@@ -79,7 +79,7 @@ sub InitVars {
   # Safe path
   $ENV{'path'} = '/usr/bin:/bin';
   # We must be the first entry in Plugins
-  @Plugins = ("aneuch.pl, version $VERSION, <a href='http://aneuch.myunixhost.com/' target='_blank'>Aneuch Wiki Engine</a>");
+  @Plugins = ("aneuch.pl, version $Aneuch::VERSION, <a href='http://www.aneuch.org/' target='_blank'>Aneuch Wiki Engine</a>");
   # Define settings
   $DataDir = '/tmp/aneuch' unless $DataDir;	# Location of docs
   $DefaultPage = 'HomePage' unless $DefaultPage; # Default page
@@ -111,6 +111,8 @@ sub InitVars {
   $UploadsAllowed = 0 unless $UploadsAllowed;	# Do not allow uploads
   # The list of allowable uploads (MIME types)
   @UploadTypes = qw(image/gif image/png image/jpeg) unless defined @UploadTypes;
+  # Blog pattern
+  $BlogPattern = '\d{4}-\d{2}-\d{2}_' unless defined $BlogPattern;
 
   # If $FancyUrls, remove $ShortScriptName from $ShortUrl
   if(($FancyUrls) and ($ShortUrl =~ m/$ShortScriptName/)) {
@@ -139,6 +141,7 @@ sub InitVars {
     $Page = GetParam('page');
   }
   $Page =~ s/^\/{1,}//;
+  #$Page =~ s/\//./g;
   if($Page and !GetParam('page')) {
     #$Param{'page'} = $Page;
     SetParam('page', $Page);
@@ -146,7 +149,6 @@ sub InitVars {
   if(!$Page and GetParam('do')) {
     $Page = GetParam('do');
   }
-  if($Page =~ m/^\//) { $Page =~ s!/!!; }
   # If there is a space in the page name, and it's not part of a command,
   #  we're going to convert all the spaces to underscores and re-direct.
   if(($Page =~ m/.*\s.*/ or $Page =~ m/^\s.*/) and !$Page =~ m/^?/) {
@@ -242,14 +244,13 @@ sub InitVars {
   }
 
   # Navbar
-  $NavBar = "<ul id=\"navbar\"><li><a href='$ShortUrl$DefaultPage' ".
-    "title='$DefaultPage'>$DefaultPage</a></li><li><a href='".$ShortUrl.
-    "RecentChanges' title='RecentChanges'>RecentChanges</a></li>".$NavBar;
-  foreach (@NavBarPages) {
-    #$_ =~ s/ /_/g;
-    #$_ = ReplaceSpaces($_);
-    $NavBar .= '<li><a href="'.$ShortUrl.ReplaceSpaces($_).
-      '" title="'.$_.'">'.$_.'</a></li>';
+  $NavBar = "<ul id=\"navbar\">";
+  foreach ($DefaultPage, 'RecentChanges', @NavBarPages) {
+    $NavBar .= '<li><a href="'.$ShortUrl.ReplaceSpaces($_).'" title="'.$_.'"';
+    if($Page eq ReplaceSpaces($_)) {
+      $NavBar .= ' class="active"';
+    }
+    $NavBar .= '>'.$_.'</a></li>';
   }
   $NavBar .= "</ul>";
 
@@ -284,7 +285,6 @@ sub InitVars {
   RegAdminPage('clearvisits', 'Clear visitor log', \&DoAdminClearVisits);
   RegAdminPage('lock',
     (-f "$DataDir/lock") ? 'Unlock the site' : 'Lock the site', \&DoAdminLock);
-  #RegAdminPage('unlock', 'Unlock the site', \&DoAdminUnlock);
   RegAdminPage('block', 'Block users', \&DoAdminBlock);
   RegAdminPage('bannedcontent', 'Ban certain types of content',
    \&DoAdminBannedContent);
@@ -316,6 +316,10 @@ sub InitVars {
   if($DiscussPrefix) {
     RegSpecialPage("$DiscussPrefix.*", \&DoDiscuss);	# Discussion pages
   }
+
+  # Register short codes
+  RegShortCode('blog', \&DoBlog);
+  RegShortCode('search', \&DoSearchShortCode);
 }
 
 sub DoPostInit {
@@ -406,6 +410,41 @@ sub DoCSS {
   }
 }
 
+sub DoBlog {
+  my $params = shift;
+  my $return;
+  my $offset = GetParam('offset',0);
+  my $limit = GetParam('limit',10);
+  #my $upper = $offset+$limit;
+
+  #my @blogpages = glob("$PageDir/*/$BlogPattern");
+  my @blogpages = grep(/^$BlogPattern/, ListAllPages());
+  my $count = scalar(@blogpages);
+  @blogpages = sort { $b cmp $a } @blogpages;
+  @blogpages = @blogpages[$offset..$offset+$limit];
+  #return join("<br/>",@blogpages);
+  foreach my $page (@blogpages) {
+    next if not $page;
+    my $pagename = $page; $pagename =~ s/^$BlogPattern//; $pagename =~ s/_/ /g;
+    my %f = GetPage($page);
+    my $date;
+    if($page =~ m/^($BlogPattern)/) {
+      $date = $1; $date =~ s/_{1,}$//;
+    }
+    $return .= '<h3 style="display:inline;" id="'.
+      ReplaceSpaces(StripMarkup($page)).'">'.
+      '<a href="'.$ShortUrl.$page.'">'.$pagename.'</a></h3><br/>'.
+      '<small><em>'.$date.'</em></small>';
+      #'<small><em>'.(FriendlyTime($f{ts}))[$TimeZone].'</em></small>';
+    $return .= Markup($f{text});
+    if($DiscussPrefix) {
+      $return .= "<p><a href=\"".$ShortUrl.$DiscussPrefix.$page."\">Discuss ".
+	$page." (".DiscussCount($page).")</a></p>";
+    }
+  }
+  return $return;
+}
+
 sub MarkupBuildLink {
   # This sub takes everything between [[ and ]] and builds a link out of it.
   my $data = shift;
@@ -448,8 +487,8 @@ sub MarkupBuildLink {
       }
       $return .= "'>".$text."</a>";
     } else {
-      $return = "[$text<a rel='nofollow' title='Create page ".$href.
-	"' href='".$ShortUrl."?do=edit;page=".ReplaceSpaces($href)."'>?</a>]";
+      $return = "[$text<a rel='nofollow' title='Create page \"".$href.
+	"\"' href='".$ShortUrl."?do=edit;page=".ReplaceSpaces($href)."'>?</a>]";
     }
   }
   return $return;
@@ -490,6 +529,22 @@ sub MarkupImage {
   }
   $return .= "/>";
   return $return;
+}
+
+sub MarkupShortcode {
+  my $orig = shift;
+  my $shortcode = $orig;
+  my $params;
+  #($shortcode, $params) = split(/\s?/,$shortcode);
+  if($shortcode =~ m/^(.*?)\s+(.*?)$/) {
+    $shortcode = $1;
+    $params = $2;
+  }
+  if(defined($ShortCodes{$shortcode})) {
+    return &{$ShortCodes{$shortcode}}($params);
+  } else {
+    return "%$orig%";
+  }
 }
 
 sub Markup {
@@ -610,6 +665,9 @@ sub Markup {
     # Underline
     $line =~ s#_{2}(.*?)_{2}#<span style="text-decoration:underline">$1</span>#g;
 
+    # Shortcodes
+    $line =~ s#%([^%]+?)%#MarkupShortcode($1)#eg;
+
     # Add it
     push @build, $line;
   }
@@ -720,6 +778,22 @@ sub UnregSpecialPage {
   my $name = shift;
   if(exists $SpecialPages{$name}) {
     delete $SpecialPages{$name};
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+sub RegShortCode {
+  my ($code, $sref) = @_;
+  return unless $code;
+  $ShortCodes{$code} = $sref;
+}
+
+sub UnregShortCode {
+  my $code = shift;
+  if(exists $ShortCodes{$code}) {
+    delete $ShortCodes{$code};
     return 1;
   } else {
     return 0;
@@ -1121,6 +1195,9 @@ sub DoEdit {
       #print '<br/>Summary:<br/><textarea name="summary" cols="100" rows="2" '.
       #'style="width:100%" placeholder="Edit summary (required)"></textarea>'.
       #'<br/><br/>';
+      print $q->checkbox(-name=>'istemplate',-value=>'yes',
+	-label=>'This page is a template',
+	-title=>'Check this box to save this page as a page template');
       print $q->p("Summary:<br/>".$q->textarea(-name=>'summary',
 	-cols=>'100', -rows=>'2', -style=>'width:100%;',
 	-placeholder=>'Edit summary (required)'));
@@ -1152,7 +1229,7 @@ sub DoEdit {
 	"Convert this file to text"));
     } else {
       print $q->p($q->a({-href=>"$ShortUrl?do=edit;page=$Page;upload=1"}, 
-	"Upload a file"));
+	"Upload a file")) if CanUpload();
     }
     if($EditorLicenseText) {
       print "<p>$EditorLicenseText</p>";
@@ -1616,10 +1693,14 @@ sub DoAdminBlock {
   print "<p>".scalar(grep { length($_) and $_ !~ /^#/ } @bl)." user(s) blocked. Add an IP address, one per line, ".
     "that you wish to block. Regular expressions are allowed (be careful!). ".
     "Lines that begin with '#' are considered comments and ignored.</p>";
-  print "<form action='$ScriptName' method='post'>".
-    "<input type='hidden' name='doing' value='blocklist' />".
-    "<textarea name='blocklist' rows='30' cols='100'>".$blocked.
-    "</textarea><br/><input type='submit' value='Save' /></form>";
+  #print "<form action='$ScriptName' method='post'>".
+  #  "<input type='hidden' name='doing' value='blocklist' />".
+  #  "<textarea name='blocklist' rows='30' cols='100'>".$blocked.
+  #  "</textarea><br/><input type='submit' value='Save' /></form>";
+  Form('blocklist','post',
+    $q->textarea(-name=>'blocklist', -rows=>30, -cols=>100, -default=>$blocked),
+    $q->submit('Save')
+  );
 }
 
 sub DoAdminBannedContent {
@@ -1632,10 +1713,15 @@ sub DoAdminBannedContent {
     "by a non-administrative user that matches this content will immediately ".
     "be rejected as spam. Any line that begins with a '#' is considered ".
     "a comment, and will be ignored by the parser.</p>";
-  print "<form action='$ScriptName' method='post'>".
-    "<input type='hidden' name='doing' value='bannedcontent' />".
-    "<textarea name='bannedcontent' rows='30' cols='100'>".$content.
-    "</textarea><br/><input type='submit' value='Save' /></form>";
+  #print "<form action='$ScriptName' method='post'>".
+  #  "<input type='hidden' name='doing' value='bannedcontent' />".
+  #  "<textarea name='bannedcontent' rows='30' cols='100'>".$content.
+  #  "</textarea><br/><input type='submit' value='Save' /></form>";
+  Form('bannedcontent', 'post',
+    $q->textarea(-name=>'bannedcontent', -rows=>30, -cols=>100,
+      -default=>$content),
+    $q->submit('Save')
+  );
 }
 
 sub DoAdminCSS {
@@ -1655,10 +1741,14 @@ sub DoAdminCSS {
     print "<p>You may edit your site's CSS here. If you need to, you may ".
       "<a href='$ShortUrl?do=admin;page=css;action=restore'>restore the ".
       "default</a> configuration.</p>";
-    print "<form action='$ScriptName' method='post'>".
-      "<input type='hidden' name='doing' value='css' />".
-      "<textarea name='css' rows='30' cols='100'>".$content.
-      "</textarea><br/><input type='submit' value='Save' /></form>";
+    #print "<form action='$ScriptName' method='post'>".
+    #  "<input type='hidden' name='doing' value='css' />".
+    #  "<textarea name='css' rows='30' cols='100'>".$content.
+    #  "</textarea><br/><input type='submit' value='Save' /></form>";
+    Form('css','post',
+      $q->textarea(-name=>'css', -rows=>30, -cols=>100, -default=>$content),
+      $q->submit('Save')
+    );
   }
 }
 
@@ -1698,8 +1788,11 @@ sub DoAdmin {
     }
     print '</ul></p>';
     print '<p>This site has ' . Commify(scalar(ListAllPages())) . ' pages, '.
-      Commify(CountAllRevisions()).' revisions, and '.
-      Commify(GetTotalViewCount()).' page views.</p>';
+      Commify(CountAllRevisions()).' revisions';
+    if($CountPageVisits) {
+      print ", and ".Commify(GetTotalViewCount()).' page views';
+    }
+    print ".</p>";
   }
 }
 
@@ -1729,6 +1822,16 @@ sub StartForm {
   my $method = shift;
   $method ||= 'post';
   return $q->start_multipart_form(-method=>$method, -action=>$ScriptName);
+}
+
+sub Form {
+  my ($doing, $method, @elements) = @_;
+  print StartForm($method);
+  print $q->hidden(-name=>'doing', -value=>$doing);
+  foreach (@elements) {
+    print $_;
+  }
+  print "</form>";
 }
 
 sub AntiSpam {
@@ -1941,6 +2044,14 @@ sub DoDownload {
       " I've got nothing...");
   }
   return;
+}
+
+sub DoSearchShortCode {
+  my $search = shift;
+  return unless $search;
+  my $searchtext = $search; $searchtext =~ s/ /+/g;
+  return "<a href=\"$ShortUrl?do=search;search=$searchtext\" ".
+    "title=\"Search for '$searchtext'\">$search</a>";
 }
 
 sub DoSearch {
@@ -2249,6 +2360,11 @@ sub DoPostingEditing {
 
 sub DoPostingDiscuss {
   if(CanDiscuss()) {
+    # Check for uploading file
+    if(GetParam('text') =~ m/^#FILE /) {
+      ErrorPage(403,"File uploads can only be done through the upload page.");
+      return;
+    }
     if(GetParam('whattodo') eq "Preview" or PassesSpamCheck()) {
       # Set user name if not already done
       my ($u, $p) = ReadCookie();
@@ -2609,9 +2725,11 @@ sub PageExists {
 
 sub DiscussCount {
   # Returns the number of comments on a Discuss page
-  if(PageExists("${DiscussPrefix}${Page}")) {
+  my $pg = shift;
+  $pg = $pg ? $pg : $Page;
+  if(PageExists("${DiscussPrefix}${pg}")) {
     my $DShortDir = substr($DiscussPrefix,0,1); $DShortDir =~ tr/[a-z]/[A-Z]/;
-    my %DiscussPage = ReadDB("$PageDir/$DShortDir/${DiscussPrefix}${Page}"); #GetPage("$PageDir/$DShortDir/${DiscussPrefix}${Page}");
+    my %DiscussPage = ReadDB("$PageDir/$DShortDir/${DiscussPrefix}${pg}"); #GetPage("$PageDir/$DShortDir/${DiscussPrefix}${Page}");
     #my @comments = split("----", $DiscussPage{text});
     my @comments = split(GetDiscussionSeparator(), $DiscussPage{text});
     #return $#comments; #scalar(@comments);
@@ -2730,7 +2848,7 @@ sub DoRevert {
       "$Page&quot;</strong> to revision ".GetParam('ver').
       "? This cannot be undone!</p>";
     print "<p><a href='$ShortUrl?do=revert;page=$Page;ver=".GetParam('ver').
-      ";confirm=yes'>YES</a>";
+      ";confirm=yes' rel='nofollow'>YES</a>";
     print "&nbsp;&nbsp; <a href='javascript:history.go(-1)'>NO</a></p>";
   }
 }
@@ -2765,7 +2883,7 @@ sub StripMarkup {
   # Returns only alphanumeric... essentially wiping out any characters that
   #  might be used in the markup syntax.
   my $ret = shift;
-  $ret =~ s/[^a-zA-Z0-9 _]//g;
+  $ret =~ s/[^a-zA-Z0-9 _-]//g;
   return $ret;
 }
 
@@ -2853,8 +2971,7 @@ sub DoRequest {
     #  bypass the check on referer. Seeing as how a legitimate user should
     #  have a very small chance of coming from this URL and submitting a 
     #  legit search, we'll go ahead and block that also.
-    if(($referer eq 'http://aneuch.myunixhost.com/?do=search&search=') or
-      ($referer !~ m/$host/)) {
+    if(($referer =~ m!\?do=search&search=$!) or ($referer !~ m/$host/)) {
       ErrorPage(503, "You're attempting to search from outside the site. ".
 	"This has been identified as a potentially abusive behavior, and has ".
 	"been blocked. Please feel free to use the search form to try your ".
@@ -3080,6 +3197,11 @@ pre
 
 .navigation li a:hover {
   background: rgb(129, 187, 242);/*#383;*/
+  color: #000;
+}
+
+.navigation li a.active {
+  background: rgb(129, 187, 242);
   color: #000;
 }
 
