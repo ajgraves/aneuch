@@ -48,7 +48,7 @@ $PurgeArchives $SearchPage $SearchBox $TemplateDir $Template $FancyUrls
 %QuestionAnswer $BannedContent %Param %SpecialPages $SurgeProtectionTime
 $SurgeProtectionCount @PostInitSubs $EditorLicenseText $AdminText $RandomText
 $CountPageVisits $PageVisitFile $q $Hostname @RawHandlers $UploadsAllowed
-@UploadTypes %ShortCodes $BlogPattern);
+@UploadTypes %ShortCodes $BlogPattern %HTTPHeader);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
@@ -57,7 +57,7 @@ $VERSION = '0.40';	# Set version number
 
 # Subs
 sub InitConfig  {
-  $ConfFile = 'config.pl' unless $ConfFile; # Set default unless we get it
+  $ConfFile = './config.pl' unless $ConfFile; # Set default unless we get it
   if(-f $ConfFile) {		# File exists
     do $ConfFile;		# Execute the config
   }
@@ -77,7 +77,7 @@ sub InitScript {
 
 sub InitVars {
   # Safe path
-  $ENV{'path'} = '/usr/bin:/bin';
+  $ENV{'PATH'} = '/usr/local/bin:/usr/pkg/bin:/usr/bin:/bin';
   # We must be the first entry in Plugins
   @Plugins = ("aneuch.pl, version $Aneuch::VERSION, <a href='http://www.aneuch.org/' target='_blank'>Aneuch Wiki Engine</a>");
   # Define settings
@@ -129,6 +129,16 @@ sub InitVars {
 
   # Initialize Directories
   InitDirs();
+
+  # Check for needed %3B, convert to ;
+  if($ENV{'REQUEST_URI'} =~ m/%3[Bb]/) { #ne $q->unescape($ENV{'REQUEST_URI'})) {
+    $HTTPStatus = "301 Moved Permanently";
+    #ReDirect($q->unescape($ENV{'REQUEST_URI'}), $HTTPStatus);
+    my $new = $ENV{'REQUEST_URI'};
+    $new =~ s/%3B/;/ig;
+    ReDirect($new,$HTTPStatus);
+    exit 0;
+  }
 
   # Get page name that is being requested
   $Page = $q->path_info;
@@ -272,6 +282,7 @@ sub InitVars {
   RegCommand('index', \&DoAdminIndex);	# Index of all pages
   RegCommand('links', \&DoLinkedPages);	# Pages that link here
   RegCommand('download', \&DoDownload);	# Download/raw display for files
+  RegCommand('robotstxt', \&DoRobotsTxt); # robots.txt support
 
   # Now register the admin actions (?do=admin;page= directives)
   # 'password' has to be set by itself, since technically there isn't a menu
@@ -290,6 +301,8 @@ sub InitVars {
    \&DoAdminBannedContent);
   RegAdminPage('css', "Edit the site's style (CSS)", \&DoAdminCSS);
   RegAdminPage('files', "List uploaded files", \&DoAdminListFiles);
+  RegAdminPage('robotstxt', "Modify your robots.txt file", \&DoAdminRobotsTxt);
+  RegAdminPage('getbannedcontentfile', '', \&DoAdminGetBannedContentFile);
 
   # Register POSTing actions
   RegPostAction('login', \&DoPostingLogin);		# Login
@@ -300,10 +313,15 @@ sub InitVars {
   RegPostAction('bannedcontent', \&DoPostingBannedContent); # Banned content
   RegPostAction('css', \&DoPostingCSS);			# Style/CSS
   RegPostAction('upload', \&DoPostingUpload);		# File uploads
+  RegPostAction('robotstxt', \&DoPostingRobotsTxt);	# robots.txt
 
   # Register raw handlers
   RegRawHandler('download');
   RegRawHandler('random');
+  RegRawHandler('robotstxt');
+
+  # Is robots.txt? Let's send it.
+  if($Page eq "robots.txt") { SetParam('do','robotstxt'); }
 
   # Maintenance actions FIXME: No fancy Reg* sub (yet)
   %MaintActions = (
@@ -963,14 +981,16 @@ sub LoadPlugins {
 
 sub ReadCookie {
   # Read cookies
-  my $rcvd_cookies = $ENV{'HTTP_COOKIE'};
+  #my $rcvd_cookies = $ENV{'HTTP_COOKIE'};
   my ($uname, $passwd) = ('','');
-  my @cookies = split(/;/, $rcvd_cookies);
-  foreach my $c (@cookies) {
-    if(grep(/^$CookieName=/,&Trim($c))) {
-      ($uname, $passwd) = split(/:/, (split(/=/,$c))[1]);
-    }
-  }
+  #my @cookies = split(/;/, $rcvd_cookies);
+  #foreach my $c (@cookies) {
+  #  if(grep(/^$CookieName=/,&Trim($c))) {
+  #    ($uname, $passwd) = split(/:/, (split(/=/,$c))[1]);
+  #  }
+  #}
+  my $cookie = $q->cookie($CookieName);
+  ($uname, $passwd) = split(/:/, $cookie);
   return ($uname, $passwd);
 }
 
@@ -987,7 +1007,11 @@ sub SetCookie {
   my $cookiepath = $ShortUrl;
   $cookiepath =~ s/$ShortScriptName\?//;
   $cookiepath =~ s/$ShortScriptName\///;
-  print "Set-cookie: $CookieName=$cookie; path=$cookiepath; expires=$futime;\n";
+  #print "Set-cookie: $CookieName=$cookie; path=$cookiepath; expires=$futime;\n";
+  my $ck = $q->cookie(-name=>$CookieName, -value=>$cookie,
+		      -path=>$cookiepath, -expires=>$futime);
+  #print $q->header(-cookie=>$cookie);
+  $HTTPHeader{'-cookie'} = $ck;
 }
 
 sub IsAdmin {
@@ -1185,7 +1209,8 @@ sub DoEdit {
       -size=>50, -maxlength=>100, -style=>"border:none;"));
   } else {
     print $q->textarea(-name=>'text', -cols=>'100', -rows=>'25',
-      -style=>'width:100%', -default=>QuoteHTML($contents));
+      -style=>'width:100%', -default=>$contents);
+      #-style=>'width:100%', -default=>QuoteHTML($contents));
   }
   #  QuoteHTML($contents).'</textarea><br/>';
   if($canedit) {
@@ -1476,6 +1501,16 @@ sub CountAllRevisions {
   return scalar(@files);
 }
 
+sub CountAllComments {
+  my @pages = ListAllPages();
+  my @discussionpages = grep(/^$DiscussPrefix.*/,@pages);
+  my $comments;
+  foreach my $pg (@discussionpages) {
+    $comments += DiscussCount($pg);
+  }
+  return $comments;
+}
+
 sub AdminForm {
   # Displays the admin login form
   my ($u,$p) = ReadCookie();
@@ -1593,74 +1628,83 @@ sub DoAdminListVisitors {
     @lf = grep(/$lim/i,@lf);
   }
   my $curdate;
-  my @IPs;
+  #my @IPs;
   print "<h2>Visitor log entries (newest to oldest, ".@lf." entries)</h2>".
     "<p style=\"text-align: left;\">";
   foreach my $entry (@lf) {
-    my @e = split(/\t/, $entry);
-    my $date = YMD($e[1]);
-    my $time = HMS($e[1]);
+    #my @e = split(/\t/, $entry);
+    my ($ip,$ts,$pg,$do,$revision,$status,$user) = split(/\t/,$entry);
+    my $date = YMD($ts); #YMD($e[1]);
+    my $time = HMS($ts); #HMS($e[1]);
     if($curdate ne $date) {
       print "</p><h2>$date</h2><p style=\"text-align: left;\">";
       $curdate = $date;
     }
     print "$time, user <strong>";
-    print QuoteHTML($e[0])."</strong> (<strong>".QuoteHTML($e[3])."</strong>)";
-    my @p = split(/\s+/,$e[2]);
-    if(@p > 1) {
-      tr/(//d for @p;
-      tr/)//d for @p;
-      if($p[1] eq "edit") {
-	print " was editing <strong>".QuoteHTML($p[0])."</strong>";
-      } elsif($p[1] eq "history") {
-	print " was viewing the history of <strong>".QuoteHTML($p[0]).
+    #print QuoteHTML($e[0])."</strong> (<strong>".QuoteHTML($e[3])."</strong>)";
+    print QuoteHTML($ip)."</strong> (<strong>".QuoteHTML($user)."</strong>)";
+    #my @p = split(/\s+/,$e[2]);
+    #if(@p > 1) {
+    if($do) {
+      #tr/(//d for @p;
+      #tr/)//d for @p;
+      if($do eq "edit") {
+	print " was editing <strong>".QuoteHTML($pg)."</strong>";
+      } elsif($do eq "history") {
+	print " was viewing the history of <strong>".QuoteHTML($pg).
 	  "</strong>";
-      } elsif($p[1] eq "search") {
-	print " was searching for <strong>&quot;".QuoteHTML($p[0]).
+      } elsif($do eq "search") {
+	print " was searching for <strong>&quot;".QuoteHTML($pg).
 	  "&quot;</strong>";
-      } elsif($p[1] eq "diff") {
-	print " was viewing differences on <strong>".QuoteHTML($p[0]).
+      } elsif($do eq "diff") {
+	print " was viewing differences on <strong>".QuoteHTML($pg).
 	  "</strong>";
-      } elsif($p[1] eq "admin") {
-	print " was in Administrative mode, doing <strong>".QuoteHTML($p[0]).
+      } elsif($do eq "admin") {
+	print " was in Administrative mode, doing <strong>".QuoteHTML($pg).
 	  "</strong>";
-      } elsif($p[1] eq "random") {
-	print " was redirected to a random page from <strong>".QuoteHTML($p[0]).
+      } elsif($do eq "random") {
+	print " was redirected to a random page from <strong>".QuoteHTML($pg).
 	  "</strong>";
-      } elsif($p[1] eq "delete") {
-	print " was deleting the page <strong>".QuoteHTML($p[0])."</strong>";
-      } elsif($p[1] =~ m/revision(\d{1,})/) { 
-        print " was viewing revision <strong>$1</strong> of page <strong>".
-	  QuoteHTML($p[0])."</strong>";
-	if($p[2]) { print " (error $p[2])"; }
-      } elsif($p[1] eq "revert") {
-	print " was reverting the page <strong>".QuoteHTML($p[0])."</strong>";
-      } elsif($p[1] eq "spam") {
-	print " was spamming the page <strong>".QuoteHTML($p[0])."</strong>";
-      } elsif($p[1] eq "index") {
+      } elsif($do eq "delete") {
+	print " was deleting the page <strong>".QuoteHTML($pg)."</strong>";
+      } elsif($do eq "revision") {
+        print " was viewing revision <strong>$revision</strong> of page <strong>".
+	  QuoteHTML($pg)."</strong>";
+	#if($p[2]) { print " (error $p[2])"; }
+      } elsif($do eq "revert") {
+	print " was reverting the page <strong>".QuoteHTML($pg)."</strong>";
+      } elsif($do eq "spam") {
+	print " was spamming the page <strong>".QuoteHTML($pg)."</strong>";
+      } elsif($do eq "index") {
 	print " was viewing the page index";
-      } elsif($p[1] eq "links") {
-	print " was viewing the page links to <strong>".QuoteHTML($p[0]).
+      } elsif($do eq "links") {
+	print " was viewing the page links to <strong>".QuoteHTML($pg).
 	  "</strong>";
-      } elsif($p[1] eq "download") {
-	print " downloaded the file <strong>".QuoteHTML($p[0])."</strong>";
+      } elsif($do eq "download") {
+	print " downloaded the file <strong>".QuoteHTML($pg)."</strong>";
+      } elsif($do eq "robotstxt") {
+	print " was getting <strong>".QuoteHTML($pg)."</strong>"; 
       } else {
-	my $tv = $p[1];
-	$tv =~ s/\(//;
-	$tv =~ s/\)//;
-	print " hit page <strong>".QuoteHTML($p[0])."</strong> (error ".
-	  QuoteHTML($tv).")";
+	#my $tv = $p[1];
+	#$tv =~ s/\(//;
+	#$tv =~ s/\)//;
+	#print " hit page <strong>".QuoteHTML($p[0])."</strong> (error ".
+	#  QuoteHTML($tv).")";
+	print " was doing &quot;$do&quot; on page <strong>$pg</strong>";
       }
-    } else { print " hit page <strong>".QuoteHTML($p[0])."</strong>"; }
+    } else { print " hit page <strong>".QuoteHTML($pg)."</strong>"; }
+    if($status) {
+      print " (<em>$status</em>)";
+    }
     print "<br/>";
-    if(!grep(/^$e[0]$/,@IPs)) { push @IPs, $e[0]; }
+    #if(!grep(/^$ip$/,@IPs)) { push @IPs, $ip; }
   }
   print "</p>";
-  print "<div class=\"toc\"><strong>IPs:</strong><br/>";
-  foreach my $entry (sort @IPs) {
-    print "$entry<br/>";
-  }
-  print "</div>";
+  #print "<div class=\"toc\"><strong>IPs:</strong><br/>";
+  #foreach my $entry (sort @IPs) {
+  #  print "$entry<br/>";
+  #}
+  #print "</div>";
 }
 
 sub DoAdminLock {
@@ -1690,7 +1734,9 @@ sub DoAdminUnlock {
 sub DoAdminBlock {
   my $blocked = FileToString($BlockedList);
   my @bl = split(/\n/,$blocked);
-  print "<p>".scalar(grep { length($_) and $_ !~ /^#/ } @bl)." user(s) blocked. Add an IP address, one per line, ".
+  print "<p><strong>".
+    Commify(scalar(grep { length($_) and $_ !~ /^#/ } @bl)).
+    "</strong> user(s) blocked. Add an IP address, one per line, ".
     "that you wish to block. Regular expressions are allowed (be careful!). ".
     "Lines that begin with '#' are considered comments and ignored.</p>";
   #print "<form action='$ScriptName' method='post'>".
@@ -1705,14 +1751,18 @@ sub DoAdminBlock {
 
 sub DoAdminBannedContent {
   my $content = FileToString($BannedContent);
-  print "<p>".scalar(grep { length($_) and $_ !~ /^#/ } split(/\n/,$content)).
-    " rules loaded (blank lines and comments don't count).</p>";
+  print "<p><strong>".
+    Commify(scalar(grep { length($_) and $_ !~ /^#/ } split(/\n/,$content))).
+    "</strong> rules loaded (blank lines and comments don't count).</p>";
   print "<p>CAUTION! This is very powerful! If you're not careful, you can ".
     "easily block all forms of editing on your site.</p>";
   print "<p>Enter regular expressions for content you wish to ban. Any edit ".
     "by a non-administrative user that matches this content will immediately ".
     "be rejected as spam. Any line that begins with a '#' is considered ".
     "a comment, and will be ignored by the parser.</p>";
+  print "<p>If you'd like to pre-fill this with the distrubuted ".
+    "BannedContentFile from Aneuch.org, <a href=\"$ShortUrl".
+    "?do=admin;page=getbannedcontentfile\">click here</a>.</p>";
   #print "<form action='$ScriptName' method='post'>".
   #  "<input type='hidden' name='doing' value='bannedcontent' />".
   #  "<textarea name='bannedcontent' rows='30' cols='100'>".$content.
@@ -1753,7 +1803,6 @@ sub DoAdminCSS {
 }
 
 sub DoAdminListFiles {
-  print $q->p("Here is a list of pages that contain uploaded files:");
   #chomp(my @files = `grep -Prli '^text: #FILE ' $PageDir`);
   my @files;
   open(FL, "grep -Prli '^text: #FILE ' $PageDir 2>/dev/null |");
@@ -1761,11 +1810,39 @@ sub DoAdminListFiles {
     push @files, $1 if m#^$PageDir/.{1}/(.*)$#;
   }
   close(FL);
+  print $q->p("Here is a list of pages that contain uploaded files:");
   print "<ul>";
   foreach (@files) {
     print "<li><a href=\"${ShortUrl}$_\">$_</a></li>";
   }
   print "</ul>";
+}
+
+sub DoAdminRobotsTxt {
+  my $content = FileToString("$DataDir/robots.txt");
+  print $q->p("For more information about robots.txt, see <a href=\"http://www.robotstxt.org/\">http://www.robotstxt.org/</a>");
+  Form('robotstxt', 'post',
+    $q->textarea(-name=>'robotstxt', -rows=>30, -cols=>100, -default=>$content),
+    $q->submit('Save')
+  );
+}
+
+sub DoAdminGetBannedContentFile {
+  my $content;
+  eval {
+    use LWP::Simple; $content = get 'http://www.aneuch.org/?do=BannedContentFile'; 
+  };
+  if($@) {
+    print $q->p("Something has gone wrong in fetching the BannedContentFile. ".
+      "Please try again later.");
+  } else {
+    #my $content = $_;
+    StringToFile(GetParam('bannedcontent'), $content);
+    print $q->p("BannedContentFile imported, ".
+      Commify(scalar(grep { length($_) and $_ !~ /^#/ } split(/\n/,$content))).
+      " rules have been loaded. <a href=\"$Url?do=admin;page=bannedcontent\"".
+      ">Click here</a> to return.");
+  }
 }
 
 sub DoAdmin {
@@ -1782,8 +1859,8 @@ sub DoAdmin {
     if(IsAdmin()) {
       my %al = reverse %AdminList;
       foreach my $listitem (sort keys %al) {
-	print '<li><a href="'.$ShortUrl.'?do=admin;page='.$al{$listitem}.
-	'">'.$listitem.'</a></li>';
+	unless($listitem eq '') { print '<li><a href="'.$ShortUrl.
+	  '?do=admin;page='.$al{$listitem}.'">'.$listitem.'</a></li>'; }
       }
     }
     print '</ul></p>';
@@ -2046,6 +2123,12 @@ sub DoDownload {
   return;
 }
 
+sub DoRobotsTxt {
+  my $contents = FileToString("$DataDir/robots.txt");
+  print "Content-type: text/plain\n\n";
+  print $contents;
+}
+
 sub DoSearchShortCode {
   my $search = shift;
   return unless $search;
@@ -2181,7 +2264,7 @@ sub HMS {
 sub QuoteHTML {
   # Escape html characters
   my $html = shift;
-  $html =~ s/&/&amp;/g;	# Found on the hard way, this must go first.
+  #$html =~ s/&/&amp;/g;	# Found on the hard way, this must go first.
   $html =~ s/</&lt;/g;
   $html =~ s/>/&gt;/g;
   return $html;
@@ -2199,9 +2282,11 @@ sub DoHistory {
     my $scharcount = length($f{text}) - (split(/\n/,$f{text}));
     my $charcount = $scharcount - ($f{text} =~ tr/ / /);
     print "<p><strong>$Page</strong><br/>".
-      "The most recent revision number of this page is $f{'revision'}. ".
-      "It has been viewed ".Commify(GetPageViewCount($Page))." time(s). ".
-      "It was last modified ".(FriendlyTime($f{'ts'}))[$TimeZone].
+      "The most recent revision number of this page is $f{'revision'}. ";
+    if($CountPageVisits) {
+      print "It has been viewed ".Commify(GetPageViewCount($Page))." time(s). ";
+    }
+    print "It was last modified ".(FriendlyTime($f{'ts'}))[$TimeZone].
       " by ".QuoteHTML($f{author}).". ".
       "There are ".Commify($linecount)." lines of text, ".Commify($wordcount).
       " words, ".Commify($scharcount)." characters with spaces and ".
@@ -2303,9 +2388,9 @@ sub ReDirect {
   my ($loc,$status) = @_;
   #print "Location: $loc\n\n";
   if(defined $status) {
-    print $q->redirect(-uri=>$loc, -status=>$status);
+    print $q->redirect(-uri=>$loc, -status=>$status, %HTTPHeader);
   } else {
-    print $q->redirect(-uri=>$loc);
+    print $q->redirect(-uri=>$loc, %HTTPHeader);
   }
 }
 
@@ -2412,6 +2497,13 @@ sub DoPostingCSS {
   ReDirect($Url."?do=admin;page=css");
 }
 
+sub DoPostingRobotsTxt {
+  if(IsAdmin()) {
+    StringToFile(GetParam('robotstxt'), "$DataDir/robots.txt");
+  }
+  ReDirect($Url."?do=admin;page=robotstxt");
+}
+
 sub DoPostingUpload {
   if(GetParam('whattodo') eq "Cancel") {
     ReDirect($Url.GetParam('file'));
@@ -2436,6 +2528,7 @@ sub DoPostingUpload {
 }
 
 sub DoPosting {
+  SetParam('do','posting');
   my $action = GetParam('doing');
   my $file = GetParam('file');
   # Remove all slashes from file name (if any)
@@ -2455,22 +2548,23 @@ sub DoVisit {
   my $mypage = (GetParam('do') eq 'search') ? GetParam('search','') : $Page;
   $mypage =~ s/ /+/g;
   if($MaxVisitorLog > 0) {
-    my $logentry = "$UserIP\t$TimeStamp\t$mypage";
+    my $logentry = "$UserIP\t$TimeStamp\t$mypage\t".GetParam('do').
+      "\t$PageRevision\t$HTTPStatus\t$UserName";
     #if($PageRevision) { $command .= "$PageRevision"; }
     #if($command) { $logentry .= " ($command)"; }
-    if(GetParam('do')) { 
-      $logentry .= " (".GetParam('do');
-      if($PageRevision) { $logentry .= "$PageRevision"; }
-      $logentry .= ")";
-    }
-    if($HTTPStatus) { 
-      chomp(my $tv = $HTTPStatus);
-      $tv =~ s/Status: //;
-      $tv = (split(/ /,$tv))[0];
-      $logentry .= " ($tv)";
-    }
-    $logentry .= "\t$UserName";
-    my @rc;
+    #if(GetParam('do')) { 
+    #  $logentry .= " (".GetParam('do');
+    #  if($PageRevision) { $logentry .= "$PageRevision"; }
+    #  $logentry .= ")";
+    #}
+    #if($HTTPStatus) { 
+    #  chomp(my $tv = $HTTPStatus);
+    #  $tv =~ s/Status: //;
+    #  $tv = (split(/ /,$tv))[0];
+    #  $logentry .= " ($tv)";
+    #}
+    #$logentry .= "\t$UserName";
+    #my @rc;
     open(LOGFILE,">>$VisitorLog");
     flock(LOGFILE, LOCK_EX);		# Lock, exclusive
     seek(LOGFILE, 0, SEEK_END);		# In case data was appeded after lock
@@ -2900,8 +2994,11 @@ sub ErrorPage {
   );
 
   my $header;
-  if($codes{$code}) { $header = "Status: $codes{$code}\n"; }
-  $HTTPStatus = $header;
+  if($codes{$code}) {
+    $header = "Status: $codes{$code}\n";
+    $HTTPStatus = $codes{$code};
+  }
+  #$HTTPStatus = $header;
   $header .= "Content-type: text/html\n\n";
   print $header;
   print "<html><head><title>$codes{$code}</title></head><body>";
@@ -2963,22 +3060,22 @@ sub DoRequest {
   }
 
   # Searching from outside our domain?
-  if(GetParam('search')) {
-    my $referer = $q->referer;
-    my $host = $ENV{'HTTP_HOST'};
-    #unless($referer =~ m/$host/) {
-    # It seems like bots are using the blank search URL as the referer to
-    #  bypass the check on referer. Seeing as how a legitimate user should
-    #  have a very small chance of coming from this URL and submitting a 
-    #  legit search, we'll go ahead and block that also.
-    if(($referer =~ m!\?do=search&search=$!) or ($referer !~ m/$host/)) {
-      ErrorPage(503, "You're attempting to search from outside the site. ".
-	"This has been identified as a potentially abusive behavior, and has ".
-	"been blocked. Please feel free to use the search form to try your ".
-	"search again.");
-      return;
-    }
-  }
+  #if(GetParam('search')) {
+  #  my $referer = $q->referer;
+  #  my $host = $ENV{'HTTP_HOST'};
+  #  #unless($referer =~ m/$host/) {
+  #  # It seems like bots are using the blank search URL as the referer to
+  #  #  bypass the check on referer. Seeing as how a legitimate user should
+  #  #  have a very small chance of coming from this URL and submitting a 
+  #  #  legit search, we'll go ahead and block that also.
+  #  if(($referer =~ m!\?do=search&search=$!) or ($referer !~ m/$host/)) {
+  #    ErrorPage(501, "You're attempting to search from outside the site. ".
+#	"This has been identified as a potentially abusive behavior, and has ".
+#	"been blocked. Please feel free to use the search form to try your ".
+#	"search again.");
+  #    return;
+  #  }
+  #}
 
   # Raw handler?
   if(IsRawHandler(GetParam('do',''))) {
@@ -2992,13 +3089,11 @@ sub DoRequest {
     return;
   }
 
-  # Random page? Do it!
-  # NOTE: This is taken care of by Raw handlers above...
-  #if(GetParam('do') eq 'random') {
-  #  #DoRandom();
-  #  &{$Commands{'random'}};
-  #  return;
-  #}
+  # Command does not exist? Let's die.
+  if(GetParam('do') and !$Commands{GetParam('do')}) {
+    ErrorPage(501,"The action '".GetParam('do')."' has not been registered.");
+    return;
+  }
 
   # Check if page exists or not, and not calling a command
   #if(! -f "$PageDir/$ShortDir/$Page" and !$command and !$Commands{$command}) {
@@ -3031,10 +3126,13 @@ sub DoRequest {
   # HTTP Header
   #print $HTTPStatus . "Content-type: text/html\n\n";
   if($HTTPStatus) {
-    print $q->header(-status=>$HTTPStatus);
-  } else {
-    print $q->header;
+    $HTTPHeader{'-status'} = $HTTPStatus
+  #  print $q->header(-status=>$HTTPStatus);
+  #} else {
+  #  print $q->header;
   }
+
+  print $q->header(%HTTPHeader);
 
   # Header
   #print Interpolate($Header);
@@ -3218,6 +3316,7 @@ pre
   padding: 20px;
   text-align:justify;
   position:relative;
+  font-size: 1.05em;
 }
 
 #content img
