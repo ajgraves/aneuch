@@ -48,7 +48,7 @@ $PurgeArchives $SearchPage $SearchBox $TemplateDir $Template $FancyUrls
 %QuestionAnswer $BannedContent %Param %SpecialPages $SurgeProtectionTime
 $SurgeProtectionCount @PostInitSubs $EditorLicenseText $AdminText $RandomText
 $CountPageVisits $PageVisitFile $q $Hostname @RawHandlers $UploadsAllowed
-@UploadTypes %ShortCodes $BlogPattern %HTTPHeader);
+@UploadTypes %ShortCodes $BlogPattern %HTTPHeader $SpamLog $LogSpam);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
@@ -113,6 +113,8 @@ sub InitVars {
   @UploadTypes = qw(image/gif image/png image/jpeg) unless defined @UploadTypes;
   # Blog pattern
   $BlogPattern = '\d{4}-\d{2}-\d{2}_' unless defined $BlogPattern;
+  $LogSpam = 1 unless defined $LogSpam;		# Log spam attempts
+  $SpamLog = 'spamlog' unless $SpamLog;		# Spam log file
 
   # If $FancyUrls, remove $ShortScriptName from $ShortUrl
   if(($FancyUrls) and ($ShortUrl =~ m/$ShortScriptName/)) {
@@ -2198,14 +2200,19 @@ sub DoSearch {
   }
   # Now sort them by value...
   my @keys = sort {length $result{$b} <=> length $result{$a}} keys %result;
-  if(scalar @keys == 0) {
-    print "Nothing found!<br/><br/>";
-  }
+  #if(scalar @keys == 0) {
+  #  print "Nothing found!<br/><br/>";
+  #}
   foreach my $key (@keys) {
-    print "<a href='$ShortUrl$key'>$key</a><br/>".
+    print "<big><a href='$ShortUrl$key'>$key</a></big><br/>".
       $result{$key}."<br/><br/>";
   }
   print scalar(@keys)." pages found.";
+  if((scalar(@keys) == 0) and CanEdit()) {
+    print " <em>Perhaps you'd like to <a href=\"$ShortUrl?do=edit;page=".
+      ReplaceSpaces($search)."\">".
+      "create a page called \"".ReplaceSpaces($search)."\"</a>?</em>";
+  }
 }
 
 sub SearchForm {
@@ -2912,7 +2919,7 @@ sub DoRevision {
 }
 
 sub DoRevert {
-  if(!CanEdit()) {
+  if(!CanEdit() or !IsAdmin()) {
     print "Can't do that, I'm afraid.";
     return;
   }
