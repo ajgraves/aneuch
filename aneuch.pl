@@ -48,7 +48,8 @@ $PurgeArchives $SearchPage $SearchBox $TemplateDir $Template $FancyUrls
 %QuestionAnswer $BannedContent %Param %SpecialPages $SurgeProtectionTime
 $SurgeProtectionCount @PostInitSubs $EditorLicenseText $AdminText $RandomText
 $CountPageVisits $PageVisitFile $q $Hostname @RawHandlers $UploadsAllowed
-@UploadTypes %ShortCodes $BlogPattern %HTTPHeader $SpamLog $LogSpam);
+@UploadTypes %ShortCodes $BlogPattern %HTTPHeader $SpamLog $LogSpam
+%CommandsDisplay);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
@@ -195,7 +196,7 @@ sub InitVars {
   $ShortDir =~ tr/[a-z]/[A-Z]/;		# Capitalize it
 
   # Discuss, edit links
-  if(!GetParam('do')) {
+  if(!GetParam('do') or GetParam('do') eq "revision") {
     if($DiscussPrefix) {
       if($Page !~ m/^$DiscussPrefix/) {	# Not a discussion page
 	$DiscussLink = $ShortUrl . $DiscussPrefix . $Page;
@@ -218,11 +219,22 @@ sub InitVars {
       $EditText = '<a title="Click to edit this page" rel="nofollow" href="'.
 	$ShortUrl;
       if($ShortUrl !~ m/\?$/) { $EditText .= "?"; }
-      $EditText .= 'do=edit;page='.$Page.'">Edit Page</a>';
+      $EditText .= 'do=edit;page='.$Page;
+      if(GetParam('revision')) {
+	$EditText .= ';revision='.GetParam('revision');
+      }
+      $EditText .= '">Edit ';
+      $EditText .= (GetParam('revision')) ? "Revision ".GetParam('revision') :
+	"Page";
+      $EditText .= '</a>';
     } else {
       $EditText = '<a title="Read only page" rel="nofollow" href="'.$ShortUrl;
       if($ShortUrl !~ m/\?$/) { $EditText .= "?"; }
-      $EditText .= 'do=edit;page='.$Page.'">Read Only</a>';
+      $EditText .= 'do=edit;page='.$Page;
+      if(GetParam('revision')) {
+        $EditText .= ';revision='.GetParam('revision');
+      }
+      $EditText .= '">Read Only</a>';
     }
     $RevisionsText = '<a title="Click here to see info and history" '.
       'rel="nofollow" href="'.$ShortUrl;
@@ -270,21 +282,35 @@ sub InitVars {
   $SearchBox = SearchForm() unless $SearchBox;  # Search box code
 
   # Register the built-in commands (?do= directives)
-  RegCommand('admin', \&DoAdmin);	# Administrative menu
-  RegCommand('edit', \&DoEdit);		# Editing screen
-  RegCommand('search', \&DoSearch);	# Search feature
-  RegCommand('history', \&DoHistory);	# Page history
-  RegCommand('random', \&DoRandom);	# Random page
-  RegCommand('diff', \&DoDiff);		# Differences between revisions
-  RegCommand('delete', \&DoDelete);	# Page deletion
-  RegCommand('revision', \&DoRevision);	# Show a previous page version
-  RegCommand('revert', \&DoRevert);	# Revert a page to a previous version
-  RegCommand('spam', \&DoSpam);		# For spam submissions
-  RegCommand('recentchanges', \&DoRecentChanges); # Just in case...
-  RegCommand('index', \&DoAdminIndex);	# Index of all pages
-  RegCommand('links', \&DoLinkedPages);	# Pages that link here
-  RegCommand('download', \&DoDownload);	# Download/raw display for files
-  RegCommand('robotstxt', \&DoRobotsTxt); # robots.txt support
+  # Administrative menu
+  RegCommand('admin', \&DoAdmin,
+    'was in Administrative mode, doing %s');
+  # Editing screen
+  RegCommand('edit', \&DoEdit, 'was editing %s');
+  # Search feature
+  RegCommand('search', \&DoSearch, 'was searching for %s');
+  # Page history
+  RegCommand('history', \&DoHistory, 'was viewing the history of %s');
+  # Random page
+  RegCommand('random', \&DoRandom, 'was redirected to a random page from %s');
+  # Differences between revisions
+  RegCommand('diff', \&DoDiff, 'was viewing differences on %s');
+  # Page deletion	
+  RegCommand('delete', \&DoDelete, 'was deleting the page %s');
+  # Show a previous page version
+  RegCommand('revision', \&DoRevision, 'was viewing revision %d of page %s');
+  # Spamming the page
+  RegCommand('spam', \&DoSpam, 'was spamming the page %s');
+  # Just in case...
+  RegCommand('recentchanges', \&DoRecentChanges, 'was viewing recent changes');
+  # Index of all pages
+  RegCommand('index', \&DoAdminIndex, 'was viewing the page index');
+  # Pages that link here
+  RegCommand('links', \&DoLinkedPages, 'was viewing backlinks to %s');
+  # Download/raw display for files
+  RegCommand('download', \&DoDownload, 'downloaded the file %s');
+  # robots.txt support
+  RegCommand('robotstxt', \&DoRobotsTxt, 'was getting %s');
 
   # Now register the admin actions (?do=admin;page= directives)
   # 'password' has to be set by itself, since technically there isn't a menu
@@ -326,10 +352,14 @@ sub InitVars {
   if($Page eq "robots.txt") { SetParam('do','robotstxt'); }
 
   # Maintenance actions FIXME: No fancy Reg* sub (yet)
-  %MaintActions = (
-    purgerc => \&DoMaintPurgeRC,	purgetemp => \&DoMaintPurgeTemp,
-    purgeoldr => \&DoMaintPurgeOldRevs, trimvisit => \&DoMaintTrimVisit,
-  );
+  #%MaintActions = (
+  #  purgerc => \&DoMaintPurgeRC,	purgetemp => \&DoMaintPurgeTemp,
+  #  purgeoldr => \&DoMaintPurgeOldRevs, trimvisit => \&DoMaintTrimVisit,
+  #);
+  RegMaintAction('purgerc', \&DoMaintPurgeRC);
+  RegMaintAction('purgeoldr', \&DoMaintPurgeOldRevs);
+  RegMaintAction('purgetemp', \&DoMaintPurgeTemp);
+  RegMaintAction('trimvisit', \&DoMaintTrimVisit);
 
   # Register the "Special Pages"
   RegSpecialPage('RecentChanges', \&DoRecentChanges);	# Recent Changes
@@ -362,7 +392,7 @@ sub DoHeader {
       "<meta name=\"generator\" content=\"Aneuch $VERSION\" />\n".
       '<style type="text/css">'.DoCSS().
       "</style></head>\n<body>\n<div id=\"container\">\n".
-      "<div id=\"header\"><div id=\"search\">".SearchForm().
+      "<div id=\"header\"><div id=\"searchbox\">".SearchForm().
       "</div>\n".
       "<a title=\"Return to $DefaultPage\" href=\"$Url\">$SiteName</a>: <h1>";
     #if(PageExists(GetParam('page',''))) {
@@ -507,7 +537,9 @@ sub MarkupBuildLink {
       }
       $return .= "'>".$text."</a>";
     } else {
-      $return = "[$text<a rel='nofollow' title='Create page \"".$href.
+      $return = "[<span style=\"border-bottom: 1px dashed #FF0000;\">".
+	"$text</span>".
+	"<a rel='nofollow' title='Create page \"".$href.
 	"\"' href='".$ShortUrl."?do=edit;page=".ReplaceSpaces($href)."'>?</a>]";
     }
   }
@@ -571,11 +603,11 @@ sub Markup {
   # Markup is a cluster. It's so ugly and nasty, but it works. In the future,
   #  this thing will be re-written to be much cleaner.
   my $cont = shift;
-  if($cont =~ m/^#NOWIKI\n/) {
-    $cont =~ s/^#NOWIKI\n//;
-    return $cont;
-  }
-  $cont = QuoteHTML($cont);
+  #if($cont =~ m/^#NOWIKI\n/) {
+  #  $cont =~ s/^#NOWIKI\n//;
+  #  return $cont;
+  #}
+  #$cont = QuoteHTML($cont);
   my @contents = split("\n", $cont);
 
   # If nomarkup is requested
@@ -588,7 +620,23 @@ sub Markup {
   my $olistlevel = 0;
   my @build;			# What will be returned
   my $line;			# Line-by-line
+  my $nowiki = 0;		# #NOWIKI
   foreach $line (@contents) {
+    # #NOWIKI
+    if(!$nowiki and $line =~ m/^#NOWIKI$/) {
+      $nowiki = 1;
+      push @build, "<!--#NOWIKI-->";
+      next;
+    }
+    if($nowiki and $line !~ m/^#NOWIKI$/) { push @build, $line; next; }
+    if($nowiki and $line =~ m/^#NOWIKI$/) {
+      $nowiki = 0;
+      push @build, "<!--#NOWIKI-->";
+      next;
+    }
+
+    $line = QuoteHTML($line);
+
     # Are we doing lists?
     # UL
     if($line =~ m/^[\s\t]*(\*{1,})[ \t]/) {
@@ -698,7 +746,13 @@ sub Markup {
   my $prevblank = 1;    # Assume true
   my $openp = 0;        # Assume false
   my $i = 0;
+  $nowiki = 0;
   for($i=0;$i<=$#build;$i++) {
+    if($build[$i] =~ m/<!--#NOWIKI-->/) {
+      $nowiki = (($nowiki == 0) ? 1 : 0);
+      next;
+    }
+    next if $nowiki;
     if($prevblank and ($build[$i] !~ m/^<(h|div)/) and ($build[$i] ne '')) {
       $prevblank = 0;
       if(!$openp) {
@@ -878,9 +932,10 @@ sub UnregPostAction {
 }
 
 sub RegCommand {
-  my ($name, $sref) = @_;
+  my ($name, $sref, $display) = @_;
   if(!exists $Commands{$name}) {
     $Commands{$name} = $sref;
+    $CommandsDisplay{$name} = $display;
     return 1;
   } else {
     return 0;
@@ -891,6 +946,27 @@ sub UnregCommand {
   my $name = shift;
   if(exists $Commands{$name}) {
     delete $Commands{$name};
+    delete $CommandsDisplay{$name};
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+sub RegMaintAction {
+  my ($name, $sref) = @_;
+  if(!exists $MaintActions{$name}) {
+    $MaintActions{$name} = $sref;
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+sub UnregMaintAction {
+  my $name = shift;
+  if(exists $MaintActions{$name}) {
+    delete $MaintActions{$name};
     return 1;
   } else {
     return 0;
@@ -922,10 +998,16 @@ sub SetParam {
 sub GetPage {
   # GetPage will read the file into a hash, and return it.
   my $file = shift;
+  # Revision?
+  my $revision = shift;
   # Get short dir
   my $archive = substr($file,0,1); $archive =~ tr/[a-z]/[A-Z]/;  
   # Call ReadDB!
-  return ReadDB("$PageDir/$archive/$file");
+  if($revision =~ m/\d+/) {
+    return ReadDB("$ArchiveDir/$archive/$file.$revision");
+  } else {
+    return ReadDB("$PageDir/$archive/$file");
+  }
 }
 
 sub GetPageViewCount {
@@ -1068,7 +1150,8 @@ sub CanUpload {
 
 sub IsLoggedIn {
   # Determine if user is logged in
-  #  NOTE: Right now, it does the same thing as IsAdmin
+  #  NOTE: Right now, it does the same thing as IsAdmin. This could be used
+  #  in the future to provide for an editor password, or actual user logins.
   my ($u, $p) = ReadCookie();
   if(@Passwords == 0) {         # If no password set...
     return 1;
@@ -1138,7 +1221,10 @@ sub DoEdit {
   my $clear = GetParam('clear');
   # Let's begin
   my ($contents, $revision);
-  my @preview;
+  $revision = GetParam('revision','');
+  my $summary = GetParam('summary','');
+  my $preview = 0;
+  my %f;
 
   if($clear) {
     SetParam('upload',0);
@@ -1155,13 +1241,18 @@ sub DoEdit {
   }
 
   if(-f "$TempDir/$Page.$UserName") {
-    @preview = FileToArray("$TempDir/$Page.$UserName");
-    s/\r//g for @preview;
-    $revision = $preview[0]; shift @preview;
-    $contents = join("\n", @preview);
+    #@preview = FileToArray("$TempDir/$Page.$UserName");
+    #s/\r//g for @preview;
+    #$revision = $preview[0]; shift @preview;
+    #$contents = join("\n", @preview);
+    %f = ReadDB("$TempDir/$Page.$UserName");
+    $revision = $f{revision};
+    chomp($contents = $f{text});
+    $preview = 1;
+    $summary = $f{summary};
     RefreshLock();
   } else {
-    my %f = GetPage($Page);
+    %f = GetPage($Page, $revision);
     chomp($contents = $f{text});
     if($clear) { $contents = ''; }
     $revision = $f{revision} if defined $f{revision};
@@ -1184,6 +1275,17 @@ sub DoEdit {
   #  return;
   #}
 
+  #print $q->p("Editing version $revision of page $Page");
+  if($revision > 0) {
+    print "<p>Editing version $revision of page $Page";
+    if($revision != LatestRevision($Page)) {
+      print " (the most recent revision is ".LatestRevision($Page).")";
+    }
+  } else {
+    print "<p>Editing the new page $Page";
+  }
+  print "</p>";
+
   if($canedit) {
     RedHerringForm();
     print StartForm();
@@ -1201,7 +1303,7 @@ sub DoEdit {
       print $q->hidden(-name=>'mtime', -value=>(stat("$PageDir/$ShortDir/$Page"))[9]);
     }
   }
-  if(@preview) {
+  if($preview) {
     print "<div class=\"preview\">" . Markup($contents) . "</div>";
   }
   #print '<textarea name="text" cols="100" rows="25" style="width:100%">'.
@@ -1217,17 +1319,18 @@ sub DoEdit {
   #  QuoteHTML($contents).'</textarea><br/>';
   if($canedit) {
     # Set a lock
-    if(@preview or SetLock()) {
+    if($preview or SetLock()) {
       #print 'Summary: <input type="text" name="summary" size="60" />';
       #print '<br/>Summary:<br/><textarea name="summary" cols="100" rows="2" '.
       #'style="width:100%" placeholder="Edit summary (required)"></textarea>'.
       #'<br/><br/>';
-      print $q->checkbox(-name=>'istemplate',-value=>'yes',
-	-label=>'This page is a template',
-	-title=>'Check this box to save this page as a page template');
+      ## THE BELOW LINE is for Templates, whenever they are added.
+      #print $q->checkbox(-name=>'istemplate',-value=>'yes',
+	#-label=>'This page is a template',
+	#-title=>'Check this box to save this page as a page template');
       print $q->p("Summary:<br/>".$q->textarea(-name=>'summary',
 	-cols=>'100', -rows=>'2', -style=>'width:100%;',
-	-placeholder=>'Edit summary (required)'));
+	-placeholder=>'Edit summary (required)', -default=>$summary));
       #print ' User name: <input type="text" name="uname" size="30" value="'.$UserName.'" /> ';
       print '<p>User name: '.$q->textfield(-name=>'uname',
 	-size=>'30', -value=>$UserName)." ".$q->a({-rel=>'nofollow',
@@ -1366,7 +1469,7 @@ sub WritePage {
   $F{author} = $user;
   $F{ts} = $TimeStamp;
   $F{text} = $content;
-  $F{revision} = GetParam('revision') + 1;
+  $F{revision} = NextRevision($file); #GetParam('revision') + 1;
   $F{diff} = $diff;
   $F{hostname} = $Hostname;
   if(GetParam('fileupload')) {
@@ -1503,6 +1606,22 @@ sub CountAllRevisions {
   return scalar(@files);
 }
 
+sub LatestRevision {
+  # Return the highest revision number for a page, or 0 if the page doesn't
+  #  exist.
+  my $page = shift;
+  $page = ReplaceSpaces($page);	# Just in case...
+  if(!PageExists($page)) { return 0; }
+  my %t = GetPage($page);
+  return $t{revision};
+}
+
+sub NextRevision {
+  # Calls LatestRevision, adds 1, and returns.
+  my $page = shift;
+  return LatestRevision($page) + 1;
+}
+
 sub CountAllComments {
   my @pages = ListAllPages();
   my @discussionpages = grep(/^$DiscussPrefix.*/,@pages);
@@ -1511,6 +1630,19 @@ sub CountAllComments {
     $comments += DiscussCount($pg);
   }
   return $comments;
+}
+
+sub CommandDisplay {
+  my ($command, $p, $r) = @_;
+  $p = "<strong>".QuoteHTML($p)."</strong>";
+  $r = "<strong>$r</strong>";
+  if(!defined $CommandsDisplay{$command}) {
+    return "was doing &quot;$command&quot; on page $p";
+  }
+  my $ret = $CommandsDisplay{$command};
+  $ret =~ s/\%s/$p/;
+  $ret =~ s/\%d/$r/;
+  return $ret;
 }
 
 sub AdminForm {
@@ -1650,50 +1782,7 @@ sub DoAdminListVisitors {
     if($do) {
       #tr/(//d for @p;
       #tr/)//d for @p;
-      if($do eq "edit") {
-	print " was editing <strong>".QuoteHTML($pg)."</strong>";
-      } elsif($do eq "history") {
-	print " was viewing the history of <strong>".QuoteHTML($pg).
-	  "</strong>";
-      } elsif($do eq "search") {
-	print " was searching for <strong>&quot;".QuoteHTML($pg).
-	  "&quot;</strong>";
-      } elsif($do eq "diff") {
-	print " was viewing differences on <strong>".QuoteHTML($pg).
-	  "</strong>";
-      } elsif($do eq "admin") {
-	print " was in Administrative mode, doing <strong>".QuoteHTML($pg).
-	  "</strong>";
-      } elsif($do eq "random") {
-	print " was redirected to a random page from <strong>".QuoteHTML($pg).
-	  "</strong>";
-      } elsif($do eq "delete") {
-	print " was deleting the page <strong>".QuoteHTML($pg)."</strong>";
-      } elsif($do eq "revision") {
-        print " was viewing revision <strong>$revision</strong> of page <strong>".
-	  QuoteHTML($pg)."</strong>";
-	#if($p[2]) { print " (error $p[2])"; }
-      } elsif($do eq "revert") {
-	print " was reverting the page <strong>".QuoteHTML($pg)."</strong>";
-      } elsif($do eq "spam") {
-	print " was spamming the page <strong>".QuoteHTML($pg)."</strong>";
-      } elsif($do eq "index") {
-	print " was viewing the page index";
-      } elsif($do eq "links") {
-	print " was viewing the page links to <strong>".QuoteHTML($pg).
-	  "</strong>";
-      } elsif($do eq "download") {
-	print " downloaded the file <strong>".QuoteHTML($pg)."</strong>";
-      } elsif($do eq "robotstxt") {
-	print " was getting <strong>".QuoteHTML($pg)."</strong>"; 
-      } else {
-	#my $tv = $p[1];
-	#$tv =~ s/\(//;
-	#$tv =~ s/\)//;
-	#print " hit page <strong>".QuoteHTML($p[0])."</strong> (error ".
-	#  QuoteHTML($tv).")";
-	print " was doing &quot;$do&quot; on page <strong>$pg</strong>";
-      }
+      print " ".CommandDisplay($do, $pg, $revision);
     } else { print " hit page <strong>".QuoteHTML($pg)."</strong>"; }
     if($status) {
       print " (<em>$status</em>)";
@@ -2133,7 +2222,12 @@ sub DoRobotsTxt {
 
 sub DoSearchShortCode {
   my $search = shift;
+  my @searchextras;
   return unless $search;
+  if($search =~ /|/) {
+    @searchextras = split(/|/,$search);
+    shift @searchextras;
+  }
   my $searchtext = $search; $searchtext =~ s/ /+/g;
   return "<a href=\"$ShortUrl?do=search;search=$searchtext\" ".
     "title=\"Search for '$searchtext'\">$search</a>";
@@ -2154,6 +2248,11 @@ sub DoSearch {
     return;
   }
   my $altsearch = ReplaceSpaces($search);
+  # Should we show summaries?
+  my $showsummary = GetParam('showsummary',1);
+  if($showsummary !~ /\d/) {	# Is numeric?
+    $showsummary = 1;
+  }
   #quotemeta($search);
   #quotemeta($altsearch);
   my %result;
@@ -2204,8 +2303,13 @@ sub DoSearch {
   #  print "Nothing found!<br/><br/>";
   #}
   foreach my $key (@keys) {
-    print "<big><a href='$ShortUrl$key'>$key</a></big><br/>".
-      $result{$key}."<br/><br/>";
+    print "<big><a href='$ShortUrl$key'>$key</a></big><br/>";
+    if($showsummary) {
+      print $result{$key}."<br/>";
+    } else {
+      print "".(split("<br/>",$result{$key}))[0]."<br/>";
+    }
+    print "<br/>";
   }
   print scalar(@keys)." pages found.";
   if((scalar(@keys) == 0) and CanEdit()) {
@@ -2347,10 +2451,15 @@ sub DoHistory {
 	  " value='$f{revision}'></td>";
 	if($topone) { $topone = ''; }
 	print "<td>".HM($f{ts})." ".
+	  #"<input type=\"button\" onClick=\"location.href='$ShortUrl?do=".
+	  #"revert;page=$Page;ver=$f{revision}'\" value=\"Revert\">".
 	  "<input type=\"button\" onClick=\"location.href='$ShortUrl?do=".
-	  "revert;page=$Page;ver=$f{revision}'\" value=\"Revert\">".
+	  "edit;page=$Page;revision=$f{revision};summary=".
+	  "Revert to Revision ".$f{revision}." (".
+	  (FriendlyTime($f{ts}))[$TimeZone].")'\" ".
+	  "value=\"Revert\">".
 	  " <a href=\"$ShortUrl?do=revision;page=$Page;".
-	  "rev=$f{revision}\"> Revision $f{revision}</a>";
+	  "revision=$f{revision}\"> Revision $f{revision}</a>";
 	#if($nextrev) {
  	#  print " (<a href='$ShortUrl?do=diff;page=$Page;$nextrev'>".
 	#    "diff</a>)";
@@ -2385,10 +2494,15 @@ sub FriendlyTime {
 sub Preview {
   # Preview will show us what changes would look like
   my $file = shift;
+  my %F;
   # First off, we need to save a temp file...
   my $tempfile = $Page.".".$UserName;
   # Save contents to temp file
-  StringToFile(GetParam('revision')."\n".GetParam('text'), "$TempDir/$tempfile");
+  #StringToFile(GetParam('revision')."\n".GetParam('text'), "$TempDir/$tempfile");
+  $F{revision} = GetParam('revision');
+  $F{text} = GetParam('text');
+  $F{summary} = GetParam('summary');
+  WriteDB("$TempDir/$tempfile", \%F);
 }
 
 sub ReDirect {
@@ -2898,8 +3012,8 @@ sub DoDelete {
 
 sub DoRevision {
   #if($ArgList =~ m/rev=(\d{1,})$/) {
-  if(GetParam('rev',0)) {
-    $PageRevision = GetParam('rev'); #$1;
+  if(GetParam('revision',0)) {
+    $PageRevision = GetParam('revision'); #$1;
     if(-f "$ArchiveDir/$ShortDir/$Page.$PageRevision") {
       my %Filec = ReadDB("$ArchiveDir/$ShortDir/$Page.$PageRevision");
       print "<p style=\"font-weight: bold;\">You are viewing Revision ".
@@ -2915,42 +3029,6 @@ sub DoRevision {
     }
   } else {
     print "What are you trying to do?";
-  }
-}
-
-sub DoRevert {
-  if(!CanEdit() or !IsAdmin()) {
-    print "Can't do that, I'm afraid.";
-    return;
-  }
-  #my @vals = split(/=/,$ArgList);
-  #if($vals[0] eq 'ver' and $vals[1]) {
-  if(GetParam('confirm','no') eq "yes") {
-    if(GetParam('ver',0)) {
-      #if(-f "$ArchiveDir/$ShortDir/$Page.$vals[1]") {
-      if(-f "$ArchiveDir/$ShortDir/$Page.".GetParam('ver')) {
-	#my %f = GetPage("$ArchiveDir/$ShortDir/$Page.$vals[1]");
-	my %f = ReadDB("$ArchiveDir/$ShortDir/$Page.".GetParam('ver'));
-	my %t = GetPage($Page);
-	SetParam('summary',
-	  "Revert to Revision ".$f{revision}." (".
-	  (FriendlyTime($f{ts}))[$TimeZone].")");
-	SetParam('revision', $t{revision});
-	WritePage($Page, $f{text}, $UserName);
-	print "Reverted to page revision ".GetParam('ver'); #$vals[1]";
-      } else {
-	print "That revision doesn't exist!";
-      } 
-    } else {
-      print "Malformed request";
-    }
-  } else {
-    print "<p>Are you sure you want to revert the page <strong>&quot;".
-      "$Page&quot;</strong> to revision ".GetParam('ver').
-      "? This cannot be undone!</p>";
-    print "<p><a href='$ShortUrl?do=revert;page=$Page;ver=".GetParam('ver').
-      ";confirm=yes' rel='nofollow'>YES</a>";
-    print "&nbsp;&nbsp; <a href='javascript:history.go(-1)'>NO</a></p>";
   }
 }
 
@@ -3115,9 +3193,9 @@ sub DoRequest {
   if(GetParam('do') eq 'revision') {
     #if($ArgList =~ m/rev=(\d{1,})$/) {
     #if(defined $Param{rev}) {
-    if(GetParam('rev')) {
+    if(GetParam('revision')) {
       #my $rev = $1;
-      my $rev = GetParam('rev'); #$Param{rev};
+      my $rev = GetParam('revision'); #$Param{rev};
       if(! -f "$ArchiveDir/$ShortDir/$Page.$rev") {
 	#$HTTPStatus = "Status: 404 Not Found\n";
 	$HTTPStatus = "404 Not Found";
@@ -3265,7 +3343,7 @@ pre
   text-decoration: underline;
 }
 
-#search {
+#searchbox {
   float:right;
   clear:left;
 }
