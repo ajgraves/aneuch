@@ -49,7 +49,7 @@ $PurgeArchives $SearchPage $SearchBox $TemplateDir $Template $FancyUrls
 $SurgeProtectionCount @PostInitSubs $EditorLicenseText $AdminText $RandomText
 $CountPageVisits $PageVisitFile $q $Hostname @RawHandlers $UploadsAllowed
 @UploadTypes %ShortCodes $BlogPattern %HTTPHeader $SpamLog $LogSpam
-%CommandsDisplay);
+%CommandsDisplay $PurgeDeletedPage);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
@@ -116,7 +116,7 @@ sub InitVars {
   $BlogPattern = '\d{4}-\d{2}-\d{2}_' unless defined $BlogPattern;
   $LogSpam = 1 unless defined $LogSpam;		# Log spam attempts
   $SpamLog = 'spamlog' unless $SpamLog;		# Spam log file
-
+  $PurgeDeletedPage = 60*60*24*14 unless $PurgeDeletedPage; # > 2 weeks
   # If $FancyUrls, remove $ShortScriptName from $ShortUrl
   if(($FancyUrls) and ($ShortUrl =~ m/$ShortScriptName/)) {
     $ShortUrl =~ s/$ShortScriptName//;
@@ -288,7 +288,7 @@ sub InitVars {
   # Editing screen
   RegCommand('edit', \&DoEdit, 'was editing %s');
   # Search feature
-  RegCommand('search', \&DoSearch, 'was searching for %s');
+  RegCommand('search', \&DoSearch, 'was searching for "%s"');
   # Page history
   RegCommand('history', \&DoHistory, 'was viewing the history of %s');
   # Random page
@@ -296,7 +296,7 @@ sub InitVars {
   # Differences between revisions
   RegCommand('diff', \&DoDiff, 'was viewing differences on %s');
   # Page deletion	
-  RegCommand('delete', \&DoDelete, 'was deleting the page %s');
+  #RegCommand('delete', \&DoDelete, 'was deleting the page %s');
   # Show a previous page version
   RegCommand('revision', \&DoRevision, 'was viewing revision %d of page %s');
   # Spamming the page
@@ -360,6 +360,7 @@ sub InitVars {
   RegMaintAction('purgeoldr', \&DoMaintPurgeOldRevs);
   RegMaintAction('purgetemp', \&DoMaintPurgeTemp);
   RegMaintAction('trimvisit', \&DoMaintTrimVisit);
+  RegMaintAction('deletepages', \&DoMaintDeletePages);
 
   # Register the "Special Pages"
   RegSpecialPage('RecentChanges', \&DoRecentChanges);	# Recent Changes
@@ -997,9 +998,10 @@ sub SetParam {
 
 sub GetPage {
   # GetPage will read the file into a hash, and return it.
-  my $file = shift;
+  #my $file = shift;
   # Revision?
-  my $revision = shift;
+  #my $revision = shift;
+  my ($file, $revision) = @_;
   # Get short dir
   my $archive = substr($file,0,1); $archive =~ tr/[a-z]/[A-Z]/;  
   # Call ReadDB!
@@ -1286,6 +1288,10 @@ sub DoEdit {
   }
   print "</p>";
 
+  if($preview) {
+    print "<div class=\"preview\">" . Markup($contents) . "</div>";
+  }
+
   if($canedit) {
     RedHerringForm();
     print StartForm();
@@ -1303,9 +1309,9 @@ sub DoEdit {
       print $q->hidden(-name=>'mtime', -value=>(stat("$PageDir/$ShortDir/$Page"))[9]);
     }
   }
-  if($preview) {
-    print "<div class=\"preview\">" . Markup($contents) . "</div>";
-  }
+  #if($preview) {
+  #  print "<div class=\"preview\">" . Markup($contents) . "</div>";
+  #}
   #print '<textarea name="text" cols="100" rows="25" style="width:100%">'.
   if(GetParam('upload')) {
     #if(
@@ -1333,8 +1339,8 @@ sub DoEdit {
 	-placeholder=>'Edit summary (required)', -default=>$summary));
       #print ' User name: <input type="text" name="uname" size="30" value="'.$UserName.'" /> ';
       print '<p>User name: '.$q->textfield(-name=>'uname',
-	-size=>'30', -value=>$UserName)." ".$q->a({-rel=>'nofollow',
-	-href=>"$ShortUrl?do=delete;page=$Page"}, "Delete Page"), " ";
+	-size=>'30', -value=>$UserName)." "; #.$q->a({-rel=>'nofollow',
+	#-href=>"$ShortUrl?do=delete;page=$Page"}, "Delete Page"), " ";
       #print ' <a rel="nofollow" href="'.$ShortUrl.'?do=delete;page='.$Page.'">'.
 	#'Delete Page</a> ';
       #print $q->a({-rel=>'nofollow', -href=>"$ShortUrl?do=delete;page=$Page"},
@@ -1449,18 +1455,23 @@ sub WritePage {
   if(! -d "$PageDir/$archive") { mkdir "$PageDir/$archive"; }
   chomp($content);
   # Catch any signatures!
-  $content =~ s/~{4}/GetSignature($UserName)/eg;
+  if($content !~ m/^FILE: /) {
+    $content =~ s/~{4}/GetSignature($UserName)/eg;
+  }
   $content .= "\n";
   DoArchive($file);
   $content =~ s/\r//g;
-  StringToFile($content, "$TempDir/new");
-  #$content =~ s/\n/\n\t/g;
-  my %T = GetPage($file);
-  StringToFile($T{text}, "$TempDir/old");
-  my $diff = `diff $TempDir/old $TempDir/new`;
-  $diff =~ s/\\ No newline.*\n//g;
-  $diff =~ s/\r//g;
-  #$diff =~ s/\n/\n\t/g;
+  my $diff;
+  if(!GetParam('fileupload')) {
+    StringToFile($content, "$TempDir/new");
+    #$content =~ s/\n/\n\t/g;
+    my %T = GetPage($file);
+    StringToFile($T{text}, "$TempDir/old");
+    $diff = `diff $TempDir/old $TempDir/new`;
+    $diff =~ s/\\ No newline.*\n//g;
+    $diff =~ s/\r//g;
+    #$diff =~ s/\n/\n\t/g;
+  }
   my %F;
   # Build file information
   $F{summary} = GetParam('summary');
@@ -1513,13 +1524,13 @@ sub ReadDB {
     chomp(@return = <FH>);	# Remove \n
     close(FH);
     s/\r//g for @return;
-    foreach (@return) {
-      if(/^\t/) {
-        $F{$currentkey} .= "\n$_";
+    foreach my $r (@return) {
+      if($r =~ m/^\t/) {
+        $F{$currentkey} .= "\n$r";
       } else {
-        my $e = index($_, ': ');
-        $currentkey = substr($_,0,$e);
-        $F{$currentkey} = substr($_,$e+2);
+        my $e = index($r, ': ');
+        $currentkey = substr($r,0,$e);
+        $F{$currentkey} = substr($r,$e+2);
       }
     }
     foreach my $key (keys %F) {
@@ -1589,7 +1600,12 @@ sub AppendPage {
   #}
   #close(FILE);
   WriteDB("$PageDir/$archive/$file", \%F);
-  LogRecent($file,$user,"Comment by $user");
+  #LogRecent($file,$user,"Comment by $user");
+  $content =~ s/\n/ /g;
+  if(length($content) > 200) {
+    $content = substr($content,0,200).". . .";
+  }
+  LogRecent($file,$user,$content);
   Index($file);
 }
 
@@ -2165,9 +2181,9 @@ sub DoRecentChanges {
       "'>history</a>) ";
     print "<a href='$ShortUrl$ent[1]'>$ent[1]</a> . . . . ";
     if(PageExists(ReplaceSpaces($ent[2]))) {
-      print "<a href='$ShortUrl$ent[2]'>$ent[2]</a><br/>";
+      print "<a href='$ShortUrl$ent[2]'>$ent[2]</a> &ndash; ";
     } else {
-      print "$ent[2]<br/>";
+      print "$ent[2] &ndash; ";
     }
     print QuoteHTML($ent[3])."</li>";
   }
@@ -2392,7 +2408,7 @@ sub DoHistory {
     my $wordcount = @{[ $f{text} =~ /\S+/g ]};
     my $scharcount = length($f{text}) - (split(/\n/,$f{text}));
     my $charcount = $scharcount - ($f{text} =~ tr/ / /);
-    print "<p><strong>$Page</strong><br/>".
+    print "<p><strong>History of $Page</strong><br/>".
       "The most recent revision number of this page is $f{'revision'}. ";
     if($CountPageVisits) {
       print "It has been viewed ".Commify(GetPageViewCount($Page))." time(s). ";
@@ -2637,11 +2653,13 @@ sub DoPostingUpload {
       ErrorPage(415, "Sorry, that file type is not allowed.");
       return;
     }
+    my $rs = $/;
     local $/ = undef;
     my $contents = <$file>;
     my $encoding = 'gzip' if substr($contents,0,2) eq "\x1f\x8b";
     eval { require MIME::Base64; $_ = MIME::Base64::encode($contents) };
     my $cont = "#FILE $type $encoding\n$_";
+    local $/ = $rs;
     #SetParam('summary', "Upload file ".GetParam('fileupload'));
     WritePage(GetParam('file'), $cont, $UserName);
   }
@@ -2766,6 +2784,43 @@ sub DoMaintTrimVisit {
     seek(LOGFILE, 0, SEEK_SET);		# Return to the beginning
     print LOGFILE "" . join("\n", @lf) . "\n";
     close(LOGFILE);
+  }
+}
+
+sub DoMaintDeletePages {
+  # Delete pages that are marked "DeletedPage" and older than $PurgeDeletedPage
+  my @list;
+  my @files;
+  my @archives;
+  my $RemoveTime = $TimeStamp - $PurgeDeletedPage;
+  open(FILES, "grep -Prli '^text: DeletedPage' $PageDir 2>/dev/null |");
+  while(<FILES>) {
+    push @list, $1 if m#^$PageDir/.{1}/(.*)$#;
+  }
+  close(FILES);
+  # Go through @list, see what is over $PurgeDeletedPage
+  foreach my $listitem (@list) {
+    my %f = GetPage($listitem);
+    if($f{ts} < $RemoveTime) { push @files, $listitem; }
+  }
+  if(@files) {
+    foreach my $file (@files) {
+      my $archive = substr($file,0,1); $archive =~ tr/[a-z]/[A-Z]/;
+      unlink "$PageDir/$archive/$file";
+      @archives = grep { /^$ArchiveDir\/$archive\/$file.\d+/ } 
+	glob("$ArchiveDir/$archive/$file.*");
+      foreach (@archives) {
+	unlink $_;
+      }
+      # Remove entries from rc.log
+      chomp(my @rclines = FileToArray($RecentChangesLog));
+      my @newrc = grep(!/^\d{14}\t$file\t.*$/, @rclines);
+      my $rcout = join("\n",@newrc) . "\n";
+      if(@newrc != @rclines) {      # Only write out if there's a difference!
+	StringToFile($rcout, $RecentChangesLog);
+      }
+    }
+    DoAdminReIndex();	# Removes the deleted page from the page index
   }
 }
 
@@ -2898,7 +2953,8 @@ sub DoDiff {
     #my $newrev = $3 ? "$Page.$3" : "$Page";
     my $newrev = defined $rv{v2} ? "$Page.$rv{v2}" : "$Page";
     print "<p>Comparing revision $rv{v1} to ".
-      (defined $rv{v2} ? $rv{v2} : "current") . "</p>";
+      (defined $rv{v2} ? $rv{v2} : "current") . " of page ".
+      "<a href=\"$ShortUrl$Page\">$Page</a></p>";
     print HTMLDiff(GetDiff($oldrev, $newrev));
     print "<hr/>";
     if(($newrev =~ m/\.\d+$/) and (-f "$ArchiveDir/$ShortDir/$newrev")) {
@@ -2906,10 +2962,12 @@ sub DoDiff {
     } else {
       %F = ReadDB("$PageDir/$ShortDir/$newrev"); #GetPage("$PageDir/$ShortDir/$newrev");
     }
-    if(defined &Markup) {
-      print Markup($F{text});
-    } else {
-      print $F{text};
+    if($F{text} !~ m/^#FILE /) {
+      if(defined &Markup) {
+	print Markup($F{text});
+      } else {
+	print $F{text};
+      }
     }
   }
 }
@@ -2951,62 +3009,6 @@ sub DiscussCount {
     return scalar(@comments);
   } else {
     return 0;
-  }
-}
-
-sub DoDelete {
-  # Delete pages
-  # Can edit?
-  #if(!CanEdit) {
-  if(!IsAdmin()) {
-    print "You can't perform this operation.";
-    return;
-  }
-  # Does page exist?
-  if(!PageExists($Page)) {
-    print "That page doesn't exist!";
-    return;
-  }
-  #if($ArgList eq "confirm=yes") {
-  if(GetParam('confirm','') eq "yes") {
-    # Delete the page
-    print "<p>Removing page... ";
-    if(unlink "$PageDir/$ShortDir/$Page") {
-      print "Done!</p>";
-    } else {
-      print "Error: $!</p>";
-    }
-    # Delete revisions
-    print "<p>Removing any archived versions... ";
-    my @arvers = glob("$ArchiveDir/$ShortDir/$Page.*");
-    if(@arvers) {
-      print "<br/>Found " . scalar @arvers . " revisions, removing... ";
-      foreach (@arvers) {
-	unlink $_;
-      }
-    } else {
-      print "No revisions found. Done.</p>";
-    }
-    # Rebuild page index
-    print "<p>Rebuilding page index... ";
-    DoAdminReIndex();
-    print "</p>";
-    # Remove entries from rc.log
-    print "<p>Removing any instances of $Page from rc.log... ";
-    chomp(my @rclines = FileToArray($RecentChangesLog));
-    my @newrc = grep(!/^\d{14}\t$Page\t.*$/, @rclines);
-    my $rcout = join("\n",@newrc) . "\n";
-    if(@newrc != @rclines) {      # Only write out if there's a difference!
-      StringToFile($rcout, $RecentChangesLog);
-    }
-    print "Done.</p>";
-    print "<p><strong>Page $Page successfully deleted!</strong></p>";
-  } else {
-    # Do we want to delete it?
-    print "<p>Are you sure you want to delete the page <strong>&quot;".
-      "$Page&quot;</strong>? This cannot be undone!</p>";
-    print "<p><a href='$ShortUrl?do=delete;page=$Page;confirm=yes'>YES</a>";
-    print "&nbsp;&nbsp; <a href='javascript:history.go(-1)'>NO</a></p>";
   }
 }
 
