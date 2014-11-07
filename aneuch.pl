@@ -38,7 +38,7 @@ local $| = 1;		# Do not buffer output
 use vars qw($DataDir $SiteName $Page $ShortPage @Passwords $PageDir $ArchiveDir
 $ShortUrl $SiteMode $ScriptName $ShortScriptName $Header $Footer $PluginDir 
 $Url $DiscussText $DiscussPrefix $DiscussLink $DefaultPage $CookieName 
-$PageName $TempDir @Messages $command $contents @Plugins $TimeStamp
+$PageName $TempDir @Messages $command $contents %Plugins $TimeStamp
 $PostFooter $TimeZone $VERSION $EditText $RevisionsText $NewPage $NewComment
 $NavBar $ConfFile $UserIP $UserName $VisitorLog $LockExpire %Filec $MTime
 $RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog
@@ -48,13 +48,14 @@ $PurgeArchives $SearchPage $SearchBox $TemplateDir $Template $FancyUrls
 %QuestionAnswer $BannedContent %Param %SpecialPages $SurgeProtectionTime
 $SurgeProtectionCount @PostInitSubs $EditorLicenseText $AdminText $RandomText
 $CountPageVisits $PageVisitFile $q $Hostname @RawHandlers $UploadsAllowed
-@UploadTypes %ShortCodes $BlogPattern %HTTPHeader $SpamLog $LogSpam
-%CommandsDisplay $PurgeDeletedPage);
+@UploadTypes %ShortCodes %HTTPHeader %CommandsDisplay $PurgeDeletedPage
+$VERSIONID);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
 
 $VERSION = '0.40';	# Set version number
+$VERSIONID = '0040';	# Version ID
 
 # Subs
 sub InitConfig  {
@@ -80,7 +81,7 @@ sub InitVars {
   # Safe path
   $ENV{'PATH'} = '/usr/local/bin:/usr/pkg/bin:/usr/bin:/bin';
   # We must be the first entry in Plugins
-  @Plugins = ("aneuch.pl, version $Aneuch::VERSION, <a href='http://www.aneuch.org/' target='_blank'>Aneuch Wiki Engine</a>");
+  #@Plugins = ("aneuch.pl, version $Aneuch::VERSION, <a href='http://www.aneuch.org/' target='_blank'>Aneuch Wiki Engine</a>");
   # Define settings
   $DataDir = '/tmp/aneuch' unless $DataDir;	# Location of docs
   $DefaultPage = 'HomePage' unless $DefaultPage; # Default page
@@ -113,9 +114,6 @@ sub InitVars {
   # The list of allowable uploads (MIME types)
   @UploadTypes = qw(image/gif image/png image/jpeg) unless defined @UploadTypes;
   # Blog pattern
-  $BlogPattern = '\d{4}-\d{2}-\d{2}_' unless defined $BlogPattern;
-  $LogSpam = 1 unless defined $LogSpam;		# Log spam attempts
-  $SpamLog = 'spamlog' unless $SpamLog;		# Spam log file
   $PurgeDeletedPage = 60*60*24*14 unless $PurgeDeletedPage; # > 2 weeks
   # If $FancyUrls, remove $ShortScriptName from $ShortUrl
   if(($FancyUrls) and ($ShortUrl =~ m/$ShortScriptName/)) {
@@ -216,37 +214,33 @@ sub InitVars {
     }
     # Edit link
     if(CanEdit()) {
-      $EditText = '<a title="Click to edit this page" rel="nofollow" href="'.
-	$ShortUrl;
-      if($ShortUrl !~ m/\?$/) { $EditText .= "?"; }
-      $EditText .= 'do=edit;page='.$Page;
       if(GetParam('revision')) {
-	$EditText .= ';revision='.GetParam('revision');
+	$EditText = CommandLink('edit', $Page, 
+	  'Edit Revision '.GetParam('revision'), 'Edit this page',
+	  'revision='.GetParam('revision'));
+      } else {
+	$EditText = CommandLink('edit', $Page, 'Edit Page', 'Edit this page');
       }
-      $EditText .= '">Edit ';
-      $EditText .= (GetParam('revision')) ? "Revision ".GetParam('revision') :
-	"Page";
-      $EditText .= '</a>';
     } else {
-      $EditText = '<a title="Read only page" rel="nofollow" href="'.$ShortUrl;
-      if($ShortUrl !~ m/\?$/) { $EditText .= "?"; }
-      $EditText .= 'do=edit;page='.$Page;
-      if(GetParam('revision')) {
-        $EditText .= ';revision='.GetParam('revision');
-      }
-      $EditText .= '">Read Only</a>';
+      $EditText = CommandLink('edit', $Page, 'Read Only', 'Read only page',
+	(GetParam('revision')) ? 'revision='.GetParam('revision') : '');
     }
-    $RevisionsText = '<a title="Click here to see info and history" '.
-      'rel="nofollow" href="'.$ShortUrl;
-    if($ShortUrl !~ m/\?$/) { $RevisionsText .= "?"; }
-    $RevisionsText .= 'do=history;page='.$Page.'">Page Info &amp; History</a>';
+    #$RevisionsText = '<a title="Click here to see info and history" '.
+    #  'rel="nofollow" href="'.$ShortUrl;
+    #if($ShortUrl !~ m/\?$/) { $RevisionsText .= "?"; }
+    #$RevisionsText .= 'do=history;page='.$Page.'">Page Info &amp; History</a>';
+    $RevisionsText = CommandLink('history',$Page,'Page Info &amp; History',
+      'Click here to see info and history');
   }
 
   # Admin link
-  $AdminText = "<a title=\"Administration options\" rel=\"nofollow\" href=\"$ShortUrl?do=admin;page=admin\">Admin</a>";
+  #$AdminText = "<a title=\"Administration options\" rel=\"nofollow\" href=\"$ShortUrl?do=admin;page=admin\">Admin</a>";
+  $AdminText = AdminLink('','Admin');
 
   # Random link
-  $RandomText = "<a title=\"Random page\" rel=\"nofollow\" href=\"$ShortUrl?do=random;page=$Page\">Random Page</a>";
+  #$RandomText = "<a title=\"Random page\" rel=\"nofollow\" href=\"$ShortUrl?do=random;page=$Page\">Random Page</a>";
+  $RandomText = CommandLink('random',$Page,'Random Page',
+    'Navigate to a random page');
 
   # If we're a command, change the page title
   if(GetParam('do') eq 'search') {
@@ -295,10 +289,8 @@ sub InitVars {
   RegCommand('random', \&DoRandom, 'was redirected to a random page from %s');
   # Differences between revisions
   RegCommand('diff', \&DoDiff, 'was viewing differences on %s');
-  # Page deletion	
-  #RegCommand('delete', \&DoDelete, 'was deleting the page %s');
   # Show a previous page version
-  RegCommand('revision', \&DoRevision, 'was viewing revision %d of page %s');
+  RegCommand('revision', \&DoRevision, 'was viewing a revision of page %s');
   # Spamming the page
   RegCommand('spam', \&DoSpam, 'was spamming the page %s');
   # Just in case...
@@ -330,7 +322,7 @@ sub InitVars {
   RegAdminPage('css', "Edit the site's style (CSS)", \&DoAdminCSS);
   RegAdminPage('files', "List uploaded files", \&DoAdminListFiles);
   RegAdminPage('robotstxt', "Modify your robots.txt file", \&DoAdminRobotsTxt);
-  RegAdminPage('getbannedcontentfile', '', \&DoAdminGetBannedContentFile);
+  #RegAdminPage('getbannedcontentfile', '', \&DoAdminGetBannedContentFile);
 
   # Register POSTing actions
   RegPostAction('login', \&DoPostingLogin);		# Login
@@ -369,7 +361,6 @@ sub InitVars {
   }
 
   # Register short codes
-  RegShortCode('blog', \&DoBlog);
   RegShortCode('search', \&DoSearchShortCode);
 }
 
@@ -461,41 +452,6 @@ sub DoCSS {
   }
 }
 
-sub DoBlog {
-  my $params = shift;
-  my $return;
-  my $offset = GetParam('offset',0);
-  my $limit = GetParam('limit',10);
-  #my $upper = $offset+$limit;
-
-  #my @blogpages = glob("$PageDir/*/$BlogPattern");
-  my @blogpages = grep(/^$BlogPattern/, ListAllPages());
-  my $count = scalar(@blogpages);
-  @blogpages = sort { $b cmp $a } @blogpages;
-  @blogpages = @blogpages[$offset..$offset+$limit];
-  #return join("<br/>",@blogpages);
-  foreach my $page (@blogpages) {
-    next if not $page;
-    my $pagename = $page; $pagename =~ s/^$BlogPattern//; $pagename =~ s/_/ /g;
-    my %f = GetPage($page);
-    my $date;
-    if($page =~ m/^($BlogPattern)/) {
-      $date = $1; $date =~ s/_{1,}$//;
-    }
-    $return .= '<h3 style="display:inline;" id="'.
-      ReplaceSpaces(StripMarkup($page)).'">'.
-      '<a href="'.$ShortUrl.$page.'">'.$pagename.'</a></h3><br/>'.
-      '<small><em>'.$date.'</em></small>';
-      #'<small><em>'.(FriendlyTime($f{ts}))[$TimeZone].'</em></small>';
-    $return .= Markup($f{text});
-    if($DiscussPrefix) {
-      $return .= "<p><a href=\"".$ShortUrl.$DiscussPrefix.$page."\">Discuss ".
-	$page." (".DiscussCount($page).")</a></p>";
-    }
-  }
-  return $return;
-}
-
 sub MarkupBuildLink {
   # This sub takes everything between [[ and ]] and builds a link out of it.
   my $data = shift;
@@ -513,26 +469,16 @@ sub MarkupBuildLink {
   } elsif($text =~ /^#/) {
     $text =~ s/^#+//;
   }
-  #if($text =~ /\?/ and $text !~ /^\?/) {
-  #  $text = (split(/\?/,$text))[0];
-  #} elsif($text =~ /^\?/) {
-  #  $text =~ s/^\?+//;
-  #}
   if(($href =~ m/^htt(p|ps):/) and ($href !~ m/^$url/)) { # External link!
-    $return = "<a class='external' rel='nofollow' title='External link: ".
-      $href."' target='_blank' href='".$href."'>".$text."</a>";
+    $return = $q->a({-class=>'external',-rel=>'nofollow',
+      -title=>'External link: '.$href,-target=>'_blank',-href=>$href},$text);
   } else {			# Internal link!
-    #my $testhref = ($href =~ /^#/) ? $href : (split(/#/,$href))[0];
-    #if($href =~ /^#/) {
-    #  $href = $Page.$href;
-    #}
     my $testhref = (split(/#/,$href))[0];
     $testhref = (split(/\?/,$testhref))[0];
-    #if((PageExists(ReplaceSpaces($href))) or ($href =~ m/^\?/) or (ReplaceSpaces($href) =~ m/^$DiscussPrefix/) or ($href =~ m/^$url/)) {
     if((PageExists(ReplaceSpaces($testhref))) or ($testhref =~ m/^\?/) or (ReplaceSpaces($testhref) =~ m/^$DiscussPrefix/) or ($testhref =~ m/^$url/) or ($testhref eq '') or (!CanEdit())) {
       $return = "<a title='".$href."' href='";
       if(($href !~ m/^$url/) and ($href !~ m/^#/)) {
-	$return .= $ShortUrl.ReplaceSpaces($href);
+	$return .= $Url.ReplaceSpaces($href);
       } else {
 	$return .= $href;
       }
@@ -540,8 +486,8 @@ sub MarkupBuildLink {
     } else {
       $return = "[<span style=\"border-bottom: 1px dashed #FF0000;\">".
 	"$text</span>".
-	"<a rel='nofollow' title='Create page \"".$href.
-	"\"' href='".$ShortUrl."?do=edit;page=".ReplaceSpaces($href)."'>?</a>]";
+	CommandLink('edit', ReplaceSpaces($href), '?',
+	  "Create page \"".ReplaceSpaces($href)."\"")."]";
     }
   }
   return $return;
@@ -609,7 +555,7 @@ sub Markup {
   #  return $cont;
   #}
   #$cont = QuoteHTML($cont);
-  my @contents = split("\n", $cont);
+  my @contents = split(/\n/, $cont);
 
   # If nomarkup is requested
   #if($contents[0] eq "!! nomarkup") { return @contents; }
@@ -622,19 +568,34 @@ sub Markup {
   my @build;			# What will be returned
   my $line;			# Line-by-line
   my $nowiki = 0;		# #NOWIKI
+  my $c;
+  my $extra;
   foreach $line (@contents) {
+  #for($c = 0; @contents; $c++) {
+    #$line = $contents[$c];
     # #NOWIKI
-    if(!$nowiki and $line =~ m/^#NOWIKI$/) {
+    if(!$nowiki and ($line =~ m/^#NOWIKI$/ or $line =~ m/^\{{3}$/)) {
       $nowiki = 1;
       push @build, "<!--#NOWIKI-->";
+      if($line =~ m/^\{{3}$/) { push @build, "<pre>"; }
       next;
     }
-    if($nowiki and $line !~ m/^#NOWIKI$/) { push @build, $line; next; }
-    if($nowiki and $line =~ m/^#NOWIKI$/) {
+    if($nowiki and ($line !~ m/^#NOWIKI$/ and $line !~ m/^\}{3}$/)) { 
+      push @build, $line;
+      next;
+    }
+    if($nowiki and ($line =~ m/^#NOWIKI$/ or $line =~ m/^\}{3}$/)) {
       $nowiki = 0;
+      if($line =~ m/^\}{3}$/) { push @build, "</pre>"; }
       push @build, "<!--#NOWIKI-->";
       next;
     }
+
+    # {{{nowiki}}}?
+    #if($line =~ m/\}{3}/) {
+    #  my @lines = split('}}}', $line, 1);
+    #  
+    #}
 
     $line = QuoteHTML($line);
 
@@ -875,6 +836,12 @@ sub UnregShortCode {
   }
 }
 
+sub RegPlugin {
+  # Registers plugin
+  my ($name, $description) = @_;
+  $Plugins{$name} = $description;
+}
+
 sub IsSpecialPage {
   # Determines of the current requested page is a special page
   foreach my $spage (sort keys %SpecialPages) {
@@ -1005,7 +972,7 @@ sub GetPage {
   # Get short dir
   my $archive = substr($file,0,1); $archive =~ tr/[a-z]/[A-Z]/;  
   # Call ReadDB!
-  if($revision =~ m/\d+/) {
+  if($revision =~ m/\d+/) {	# If revision exists and is a numeric value
     return ReadDB("$ArchiveDir/$archive/$file.$revision");
   } else {
     return ReadDB("$PageDir/$archive/$file");
@@ -1025,13 +992,6 @@ sub GetTotalViewCount {
     $sum += $f{$_};
   }
   return $sum;
-}
-
-sub GetArchivePage {
-  my ($file, $revision) = shift;
-  # Get short dir
-  my $archive = substr($file,0,1); $archive =~ tr/[a-z]/[A-Z]/;
-  return ReadDB("$ArchiveDir/$archive/$file.$revision");
 }
 
 sub InitDirs {
@@ -1210,9 +1170,10 @@ sub RefreshLock {
     chomp(my @lock = FileToArray("$TempDir/$Page.lock"));
     if($lock[0] eq $UserIP and $lock[1] eq $UserName) {
       $lock[2] = $TimeStamp;
-      open(LOCK,">$TempDir/$Page.lock") or push @Messages, "RefreshLock: Error opening $Page.lock for write: $!";
-      print LOCK join("\n", @lock);
-      close(LOCK);
+      #open(LOCK,">$TempDir/$Page.lock") or push @Messages, "RefreshLock: Error opening $Page.lock for write: $!";
+      #print LOCK join("\n", @lock);
+      #close(LOCK);
+      StringToFile(join("\n",@lock), "$TempDir/$Page.lock");
       return 1;
     } else { return 0; }
   } else { return 0; }
@@ -1408,6 +1369,7 @@ sub UnLock {
   # Removed a page lock
   my $pg = $Page;
   ($pg) = @_ if @_ >= 1;
+  $pg =~ m/^([^\\\/]+)$/; $pg = $1;
   if(-f "$TempDir/$pg.lock") {
     if(!unlink "$TempDir/$pg.lock") {
       push @Messages, "Unable to delete lock file $pg.lock: $!";
@@ -1433,14 +1395,17 @@ sub Index {
 
 sub DoArchive {
   my $file = shift;	# The file we're working on
+  $file =~ m/^([^\\\/]+)$/; $file = $1;
   # $archive will be the 1-letter dir under /archive that we're writing to
   my $archive = substr($file,0,1); $archive =~ tr/[a-z]/[A-Z]/;
+  $archive =~ m/^(\w)$/; $archive = $1;
   #if(!-f "$PageDir/$archive/$file") { return; }
   if(!PageExists($file)) { return; }
   # If $archive doesn't exist, we'd better create it...
   if(! -d "$ArchiveDir/$archive") { mkdir "$ArchiveDir/$archive"; }
   my %F = GetPage($file);
   # Now copy...
+  $F{revision} =~ m/^(\d+)$/; $F{revision} = $1;
   system("cp $PageDir/$archive/$file $ArchiveDir/$archive/$file.$F{revision}");
 }
 
@@ -1455,7 +1420,7 @@ sub WritePage {
   if(! -d "$PageDir/$archive") { mkdir "$PageDir/$archive"; }
   chomp($content);
   # Catch any signatures!
-  if($content !~ m/^FILE: /) {
+  if($content !~ m/^#FILE /) {
     $content =~ s/~{4}/GetSignature($UserName)/eg;
   }
   $content .= "\n";
@@ -1502,6 +1467,7 @@ sub WriteDB {
   # We receive file name, and hash
   my $filename = shift;
   my %filedata = %{shift()};
+  $filename =~ m/^(.*)$/; $filename = $1;
   open(FILE, ">$filename") or push @Messages, "WriteDB: Unable to write to $filename: $!";
   flock(LOGFILE, LOCK_EX);	# Lock, exclusive
   seek(LOGFILE, 0, SEEK_SET);	# Go to beginning of file...
@@ -1651,25 +1617,32 @@ sub CountAllComments {
 sub CommandDisplay {
   my ($command, $p, $r) = @_;
   $p = "<strong>".QuoteHTML($p)."</strong>";
-  $r = "<strong>$r</strong>";
+  #$r = "<strong>$r</strong>";
   if(!defined $CommandsDisplay{$command}) {
     return "was doing &quot;$command&quot; on page $p";
   }
   my $ret = $CommandsDisplay{$command};
   $ret =~ s/\%s/$p/;
-  $ret =~ s/\%d/$r/;
+  #$ret =~ s/\%d/$r/;
+  if($r) {
+    $ret .= " (revision <strong>$r</strong>)";
+  }
   return $ret;
 }
 
 sub AdminForm {
   # Displays the admin login form
   my ($u,$p) = ReadCookie();
-  print '<form action="' . $ScriptName . '" method="post">';
-  print '<input type="hidden" name="doing" value="login" />';
-  print 'User: <input type="text" maxlength="30" size="20" name="user" value="'.
-  $u.'" />';
-  print ' Pass: <input type="password" size="20" name="pass" value="'.$p.'" />';
-  print ' <input type="submit" value="Go" /></form>';
+  #print '<form action="' . $ScriptName . '" method="post">';
+  #print '<input type="hidden" name="doing" value="login" />';
+  #print 'User: <input type="text" maxlength="30" size="20" name="user" value="'.
+  #$u.'" />';
+  #print ' Pass: <input type="password" size="20" name="pass" value="'.$p.'" />';
+  #print ' <input type="submit" value="Go" /></form>';
+  Form('login','post',
+    "User: ".$q->textfield(-name=>'user',-value=>$u,-size=>20,-maxlength=>30),
+    " Pass: ".$q->password_field(-name=>'pass',-value=>$p,-size=>20),
+    " ".$q->submit(-value=>'Go'));
 }
 
 sub DoAdminPassword {
@@ -1685,8 +1658,14 @@ sub DoAdminPassword {
 sub DoAdminVersion {
   # Display the version information of every plugin listed
   print $q->p('Versions used on this site:');
-  foreach my $c (@Plugins) {
-    print $q->p($c);
+  #foreach my $c (@Plugins) {
+  #  print $q->p($c);
+  #}
+  print $q->p("aneuch.pl: version $Aneuch::VERSION (build $Aneuch::VERSIONID)".
+    ", the <a href='http://www.aneuch.org/' target='_blank'>".
+    "Aneuch Wiki Engine</a>");
+  foreach my $c (keys %Plugins) {
+    print $q->p("$c: $Plugins{$c}");
   }
   print $q->p("CGI.pm, version ".$CGI::VERSION);
   print $q->p($ENV{'SERVER_SOFTWARE'});
@@ -1707,7 +1686,7 @@ sub DoAdminIndex {
   print "<h3>" . @indx . " pages found.</h3><p>";
   print "<ol>";
   foreach my $pg (@indx) {
-    print "<li><a href=\"$ShortUrl$pg\">$pg</a>";
+    print "<li>".$q->a({-href=>$Url.$pg}, $pg);
     if($CountPageVisits) {
       print " <small><em>(".Commify(GetPageViewCount($pg))." views)</em></small>";
     }
@@ -1726,10 +1705,11 @@ sub DoAdminReIndex {
 sub DoAdminRemoveLocks {
   # Force remove all locks...
   my @files = glob("$TempDir/*.lock");
-  foreach (@files) {
-    unlink $_;
-  }
   s!^$TempDir/!! for @files;
+  foreach (@files) {
+    $_ = m/^([^\\\/]+)$/; $_ = $1;
+    unlink $TempDir.'/'.$_;
+  }
   print "Removed the following locks:<br/>".join("<br/>",@files);
 }
 
@@ -1743,9 +1723,9 @@ sub DoAdminClearVisits {
     }
   } else {
     print "<p>Are you sure you want to clear the visitor log? ".
-      "This cannot be undone.</p><p><a href=\"$ShortUrl".
-      "?do=admin;page=clearvisits;confirm=yes\">YES</a>&nbsp;&nbsp;".
-      "<a href=\"javascript:history.go(-1)\">NO</a></p>";
+      "This cannot be undone.</p>";
+    print $q->p(AdminLink('clearvisits', "YES", 'confirm=yes')."&nbsp;&nbsp;".
+      $q->a({-href=>"javascript:history.go(-1)"},"NO"));
   }
 }
 
@@ -1766,8 +1746,9 @@ sub DoAdminListVisitors {
       <input type="submit" value="Search"/>';
   #}
   if($lim) {
-    print " <a href='$ShortUrl?do=".GetParam('do','admin').
-      ";page=".GetParam('page','visitors')."'>Remove</a>";
+    #print " <a href='$ShortUrl?do=".GetParam('do','admin').
+    #  ";page=".GetParam('page','visitors')."'>Remove</a>";
+    print " ".AdminLink('visitors',"Remove");
   }
   print "</form>";
   # Display the visitors.log file
@@ -1829,15 +1810,6 @@ sub DoAdminLock {
   }
 }
 
-sub DoAdminUnlock {
-  if(-f "$DataDir/lock") {
-    unlink "$DataDir/lock";
-    print "Site has been unlocked.";
-  } else {
-    print "Site is already unlocked!";
-  }
-}
-
 sub DoAdminBlock {
   my $blocked = FileToString($BlockedList);
   my @bl = split(/\n/,$blocked);
@@ -1852,7 +1824,7 @@ sub DoAdminBlock {
   #  "</textarea><br/><input type='submit' value='Save' /></form>";
   Form('blocklist','post',
     $q->textarea(-name=>'blocklist', -rows=>30, -cols=>100, -default=>$blocked),
-    $q->submit('Save')
+    "<br/>", $q->submit('Save')
   );
 }
 
@@ -1867,16 +1839,16 @@ sub DoAdminBannedContent {
     "by a non-administrative user that matches this content will immediately ".
     "be rejected as spam. Any line that begins with a '#' is considered ".
     "a comment, and will be ignored by the parser.</p>";
-  print "<p>If you'd like to pre-fill this with the distrubuted ".
-    "BannedContentFile from Aneuch.org, <a href=\"$ShortUrl".
-    "?do=admin;page=getbannedcontentfile\">click here</a>.</p>";
+  #print "<p>If you'd like to pre-fill this with the distrubuted ".
+  #  "BannedContentFile from Aneuch.org, <a href=\"$ShortUrl".
+  #  "?do=admin;page=getbannedcontentfile\">click here</a>.</p>";
   #print "<form action='$ScriptName' method='post'>".
   #  "<input type='hidden' name='doing' value='bannedcontent' />".
   #  "<textarea name='bannedcontent' rows='30' cols='100'>".$content.
   #  "</textarea><br/><input type='submit' value='Save' /></form>";
   Form('bannedcontent', 'post',
     $q->textarea(-name=>'bannedcontent', -rows=>30, -cols=>100,
-      -default=>$content),
+      -default=>$content),"<br/>",
     $q->submit('Save')
   );
 }
@@ -1896,15 +1868,17 @@ sub DoAdminCSS {
   } else {
     my $content = DoCSS();
     print "<p>You may edit your site's CSS here. If you need to, you may ".
-      "<a href='$ShortUrl?do=admin;page=css;action=restore'>restore the ".
-      "default</a> configuration.</p>";
+      #"<a href='$ShortUrl?do=admin;page=css;action=restore'>restore the ".
+      #"default</a> configuration.</p>";
+      AdminLink('css','restore the default','action=restore').
+      " configuration.</p>";
     #print "<form action='$ScriptName' method='post'>".
     #  "<input type='hidden' name='doing' value='css' />".
     #  "<textarea name='css' rows='30' cols='100'>".$content.
     #  "</textarea><br/><input type='submit' value='Save' /></form>";
     Form('css','post',
       $q->textarea(-name=>'css', -rows=>30, -cols=>100, -default=>$content),
-      $q->submit('Save')
+      "<br/>", $q->submit('Save')
     );
   }
 }
@@ -1920,7 +1894,8 @@ sub DoAdminListFiles {
   print $q->p("Here is a list of pages that contain uploaded files:");
   print "<ul>";
   foreach (@files) {
-    print "<li><a href=\"${ShortUrl}$_\">$_</a></li>";
+    #print "<li><a href=\"${ShortUrl}$_\">$_</a></li>";
+    print $q->li($q->a({-href=>$Url.$_}, $_));
   }
   print "</ul>";
 }
@@ -1930,27 +1905,27 @@ sub DoAdminRobotsTxt {
   print $q->p("For more information about robots.txt, see <a href=\"http://www.robotstxt.org/\">http://www.robotstxt.org/</a>");
   Form('robotstxt', 'post',
     $q->textarea(-name=>'robotstxt', -rows=>30, -cols=>100, -default=>$content),
-    $q->submit('Save')
+    "<br/>", $q->submit('Save')
   );
 }
 
-sub DoAdminGetBannedContentFile {
-  my $content;
-  eval {
-    use LWP::Simple; $content = get 'http://www.aneuch.org/?do=BannedContentFile'; 
-  };
-  if($@) {
-    print $q->p("Something has gone wrong in fetching the BannedContentFile. ".
-      "Please try again later.");
-  } else {
-    #my $content = $_;
-    StringToFile(GetParam('bannedcontent'), $content);
-    print $q->p("BannedContentFile imported, ".
-      Commify(scalar(grep { length($_) and $_ !~ /^#/ } split(/\n/,$content))).
-      " rules have been loaded. <a href=\"$Url?do=admin;page=bannedcontent\"".
-      ">Click here</a> to return.");
-  }
-}
+#sub DoAdminGetBannedContentFile {
+#  my $content;
+#  eval {
+#    use LWP::Simple; $content = get 'http://www.aneuch.org/?do=BannedContentFile'; 
+#  };
+#  if($@) {
+#    print $q->p("Something has gone wrong in fetching the BannedContentFile. ".
+#      "Please try again later.");
+#  } else {
+#    #my $content = $_;
+#    StringToFile(GetParam('bannedcontent'), $content);
+#    print $q->p("BannedContentFile imported, ".
+#      Commify(scalar(grep { length($_) and $_ !~ /^#/ } split(/\n/,$content))).
+#      " rules have been loaded. <a href=\"$Url?do=admin;page=bannedcontent\"".
+#      ">Click here</a> to return.");
+#  }
+#}
 
 sub DoAdmin {
   # Command? And can we run it?
@@ -1958,7 +1933,8 @@ sub DoAdmin {
     if($Page eq 'password' or IsAdmin()) {
       &{$AdminActions{$Page}};	# Execute it.
       #print "<p><a href=\"javascript:history.go(-1)\">&larr; Back</a></p>";
-      print "<p><a href=\"$Url?do=admin;page=admin\">&larr; Back</a></p>";
+      #print "<p><a href=\"$Url?do=admin;page=admin\">&larr; Back</a></p>";
+      print $q->p(AdminLink('',"&larr; Admin Menu"));
     }
   } else {
     print '<p>You may:<ul><li><a href="'.$ShortUrl.
@@ -1966,8 +1942,11 @@ sub DoAdmin {
     if(IsAdmin()) {
       my %al = reverse %AdminList;
       foreach my $listitem (sort keys %al) {
-	unless($listitem eq '') { print '<li><a href="'.$ShortUrl.
-	  '?do=admin;page='.$al{$listitem}.'">'.$listitem.'</a></li>'; }
+	#unless($listitem eq '') { print '<li><a href="'.$ShortUrl.
+	#  '?do=admin;page='.$al{$listitem}.'">'.$listitem.'</a></li>'; }
+	unless($listitem eq '') {
+	  print $q->li(AdminLink($al{$listitem},$listitem));
+	}
       }
     }
     print '</ul></p>';
@@ -2177,11 +2156,12 @@ sub DoRecentChanges {
     }
     print "<li>$tme $tz (". #<a href='$ShortUrl?do=diff;page=$ent[1]".
     #  "'>diff</a>, ".
-      "<a href='$ShortUrl?do=history;page=$ent[1]".
-      "'>history</a>) ";
-    print "<a href='$ShortUrl$ent[1]'>$ent[1]</a> . . . . ";
+      #"<a href='$Url?do=history;page=$ent[1]".
+      #"'>history</a>) ";
+      CommandLink('history', $ent[1], 'history').") ";
+    print "<a href='$Url$ent[1]'>$ent[1]</a> . . . . ";
     if(PageExists(ReplaceSpaces($ent[2]))) {
-      print "<a href='$ShortUrl$ent[2]'>$ent[2]</a> &ndash; ";
+      print "<a href='$Url$ent[2]'>$ent[2]</a> &ndash; ";
     } else {
       print "$ent[2] &ndash; ";
     }
@@ -2212,7 +2192,7 @@ sub DoLinkedPages {
 }
 
 sub DoDownload {
-  my %F = GetPage(GetParam('page'));
+  my %F = GetPage(GetParam('page'),GetParam('revision',''));
   if($F{text} =~ m/^#FILE (\S+) ?(\S+)?\n/) {
     # We've got a raw file
     my @lines = split(/\n/,$F{text});
@@ -2420,8 +2400,14 @@ sub DoHistory {
       Commify($charcount)." without. ".
       "The total page size (including metadata) is ".Commify((stat("$PageDir/$ShortDir/$Page"))[7])." bytes.";
     print "</p>";
-    print "<p><a href=\"$ShortUrl?do=links;page=$Page\">".
-      "See all pages that link to $Page</a></p>";
+    # If the page is set for deletion, let them know
+    if($f{text} =~ m/^DeletedPage\n/) {
+      print $q->p($q->em("This page is scheduled to be deleted after ".
+	$q->strong((FriendlyTime($f{ts} + $PurgeDeletedPage))[$TimeZone])));
+    }
+    #print "<p><a href=\"$ShortUrl?do=links;page=$Page\">".
+    #  "See all pages that link to $Page</a></p>";
+    print $q->p(CommandLink('links',$Page,"See all pages that link to $Page"));
     #print "<form action='$ScriptName' method='get'>";
     print "<form action='$ShortUrl' method='get'>";
     print "<input type='hidden' name='do' value='diff' />";
@@ -2431,12 +2417,12 @@ sub DoHistory {
     print "<tr valign='top'><td><input type='radio' name='v1' value='cur'>".
       "</td><td><input type='radio' name='v2' value='cur' checked></td>";
     print "<td>" . HM($f{ts}) . " (current) ".
-      "<a href=\"$ShortUrl$Page\">Revision " . $f{revision} . "</a>";
+      "<a href=\"$Url$Page\">Revision " . $f{revision} . "</a>";
     #if($f{revision} > 1) {
     #  print " (<a href='$ShortUrl?do=diff;page=$Page'>diff</a>)";
     #}
     if(PageExists(ReplaceSpaces($f{author}))) {
-      print " . . . . <a href=\"$ShortUrl" . QuoteHTML($f{author}) . "\">".
+      print " . . . . <a href=\"$Url" . QuoteHTML($f{author}) . "\">".
         QuoteHTML($f{author}) . "</a>";
     } else {
       print " . . . . ".QuoteHTML($f{author});
@@ -2469,19 +2455,21 @@ sub DoHistory {
 	print "<td>".HM($f{ts})." ".
 	  #"<input type=\"button\" onClick=\"location.href='$ShortUrl?do=".
 	  #"revert;page=$Page;ver=$f{revision}'\" value=\"Revert\">".
-	  "<input type=\"button\" onClick=\"location.href='$ShortUrl?do=".
+	  "<input type=\"button\" onClick=\"location.href='$Url?do=".
 	  "edit;page=$Page;revision=$f{revision};summary=".
 	  "Revert to Revision ".$f{revision}." (".
 	  (FriendlyTime($f{ts}))[$TimeZone].")'\" ".
-	  "value=\"Revert\">".
-	  " <a href=\"$ShortUrl?do=revision;page=$Page;".
-	  "revision=$f{revision}\"> Revision $f{revision}</a>";
+	  "value=\"Revert\"> ".
+	  #" <a href=\"$Url?do=revision;page=$Page;".
+	  #"revision=$f{revision}\"> Revision $f{revision}</a>";
+	  CommandLink('revision',$Page,"Revision $f{revision}",
+	    "View revision $f{revision}","revision=$f{revision}");
 	#if($nextrev) {
  	#  print " (<a href='$ShortUrl?do=diff;page=$Page;$nextrev'>".
 	#    "diff</a>)";
 	#}
 	if(PageExists(QuoteHTML($f{author}))) {
-	  print " . . . . <a href=\"$ShortUrl" . QuoteHTML($f{author}) . "\">".
+	  print " . . . . <a href=\"$Url" . QuoteHTML($f{author}) . "\">".
 	    QuoteHTML($f{author}) . "</a>";
 	} else {
 	  print " . . . . ".QuoteHTML($f{author});
@@ -2686,6 +2674,9 @@ sub DoVisit {
   #my $mypage = (GetParam('search')) ? GetParam('search') : $Page;
   my $mypage = (GetParam('do') eq 'search') ? GetParam('search','') : $Page;
   $mypage =~ s/ /+/g;
+  if(GetParam('revision') and !$PageRevision) {
+    $PageRevision = GetParam('revision');
+  }
   if($MaxVisitorLog > 0) {
     my $logentry = "$UserIP\t$TimeStamp\t$mypage\t".GetParam('do').
       "\t$PageRevision\t$HTTPStatus\t$UserName";
@@ -3021,7 +3012,15 @@ sub DoRevision {
       print "<p style=\"font-weight: bold;\">You are viewing Revision ".
 	"$Filec{revision} of <a href=\"$ShortUrl$Page\">$Page".
 	"</a></p><hr/>\n";
-      if(exists &Markup) {
+      if($Filec{text} =~ m/^#FILE /) {
+	# This is a file, and should be shown as such.
+        print $q->p("This page contains a file:");
+        #print $q->pre($q->a({-href=>"$ShortUrl?do=download;page=$Page"},
+        #  ($Filec{filename}) ? $Filec{filename} : $Page));
+	print $q->pre(CommandLink('download',$Page,
+	  ($Filec{filename}) ? $Filec{filename} : $Page, 'View file',
+	  (GetParam('revision')) ? 'revision='.GetParam('revision') : ''));
+      } elsif(exists &Markup) {
         print Markup($Filec{text});
       } else {
         print join("\n", $Filec{text});
@@ -3120,6 +3119,26 @@ sub IsDiscussionPage {
   } else {
     return 0;
   }
+}
+
+sub CommandLink {
+  my ($do, $pg, $text, $title, @extras) = @_;
+  my $ret;
+  $ret = $Url;
+  if($pg) { $ret .= $pg; }
+  $ret .= "?do=$do";
+  #$ret .= ";page=$pg" if $pg;
+  $ret .= ";".join(';',@extras) if @extras;
+  return $q->a({-href=>$ret, -title=>$title, -rel=>'nofollow'}, $text);
+}
+
+sub AdminLink {
+  my ($pg, $text, @extras) = @_;
+  my $ret;
+  $ret = $Url . "?do=admin";
+  $ret .= ";page=$pg" if $pg;
+  $ret .= ";".join(';',@extras) if @extras;
+  return $q->a({-href=>$ret, -rel=>'nofollow'}, $text);
 }
 
 sub DoRequest {
@@ -3293,17 +3312,18 @@ body
 pre
 {
   overflow: auto;
-  word-wrap: normal;
-  border: 1px solid rgb(204, 204, 204);
+  word-wrap: break-word; /*normal;*/
+  /*border: 1px solid rgb(204, 204, 204);
   border-radius: 2px 2px 2px 2px;
-  box-shadow: 0px 0px 0.5em rgb(204, 204, 204) inset;
+  box-shadow: 0px 0px 0.5em rgb(204, 204, 204) inset;*/
+  margin-left: 1em;
   padding: 0.7em 1em;
   font-family: Consolas,"Andale Mono WT","Andale Mono","Bitstream Vera Sans Mono","Nimbus Mono L",Monaco,"Courier New",monospace;
   font-size: 1em;
   direction: ltr;
   text-align: left;
-  background-color: rgb(251, 250, 249);
-  color: rgb(51, 51, 51);
+  /*background-color: rgb(251, 250, 249);
+  color: rgb(51, 51, 51);*/
 }
 
 #container
