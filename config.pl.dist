@@ -197,6 +197,10 @@ $UploadsAllowed = 0;
 #  'image/gif', and 'image/png', and is considered a sane default.
 @UploadTypes = qw(image/gif image/png image/jpeg);
 
+# $PurgeDeletedPage - This variable controls how long a deleted page can stick
+#  around (in seconds). The default is 2 weeks, and is consdered a sane default.
+$PurgeDeletedPage = 60*60*24*14;
+
 # $ConfFile - Note that this variable is optional. Aneuch will use the current
 #  directory that it resides in to find the configuration file. However, it
 #  will not look anywhere else if it does not find one there. Now obviously
