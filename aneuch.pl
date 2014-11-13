@@ -214,7 +214,8 @@ sub InitVars {
     }
     # Edit link
     if(CanEdit()) {
-      if(GetParam('revision')) {
+      my $rev = GetParam('revision','');
+      if($rev and $rev =~ m/\d+/ and PageExists($Page, $rev)) {
 	$EditText = CommandLink('edit', $Page, 
 	  'Edit Revision '.GetParam('revision'), 'Edit this page',
 	  'revision='.GetParam('revision'));
@@ -289,8 +290,6 @@ sub InitVars {
   RegCommand('random', \&DoRandom, 'was redirected to a random page from %s');
   # Differences between revisions
   RegCommand('diff', \&DoDiff, 'was viewing differences on %s');
-  # Show a previous page version
-  RegCommand('revision', \&DoRevision, 'was viewing a revision of page %s');
   # Spamming the page
   RegCommand('spam', \&DoSpam, 'was spamming the page %s');
   # Just in case...
@@ -476,7 +475,7 @@ sub MarkupBuildLink {
     my $testhref = (split(/#/,$href))[0];
     $testhref = (split(/\?/,$testhref))[0];
     if((PageExists(ReplaceSpaces($testhref))) or ($testhref =~ m/^\?/) or (ReplaceSpaces($testhref) =~ m/^$DiscussPrefix/) or ($testhref =~ m/^$url/) or ($testhref eq '') or (!CanEdit())) {
-      $return = "<a title='".$href."' href='";
+      $return = "<a title='".ReplaceSpaces($href)."' href='";
       if(($href !~ m/^$url/) and ($href !~ m/^#/)) {
 	$return .= $Url.ReplaceSpaces($href);
       } else {
@@ -516,7 +515,7 @@ sub MarkupImage {
   }
   my $return = '<img src="';
   if(PageExists(ReplaceSpaces($img))) {
-    $return .= "$ShortUrl?do=download;page=".ReplaceSpaces($img)."\" ";
+    $return .= "$Url?do=download;page=".ReplaceSpaces($img)."\" ";
   } else {
     $return .= "$img\" ";
   }
@@ -852,6 +851,7 @@ sub IsSpecialPage {
 
 sub DoSpecialPage {
   #if(exists $SpecialPages{$Page} and defined $SpecialPages{$Page}) {
+  return if GetParam('revision','');
   foreach my $spage (sort keys %SpecialPages) {
     if($Page =~ m/^$spage$/) { &{$SpecialPages{$spage}}; return; }
   }
@@ -970,7 +970,7 @@ sub GetPage {
   #my $revision = shift;
   my ($file, $revision) = @_;
   # Get short dir
-  my $archive = substr($file,0,1); $archive =~ tr/[a-z]/[A-Z]/;  
+  my $archive = substr($file,0,1); $archive =~ tr/[a-z]/[A-Z]/;
   # Call ReadDB!
   if($revision =~ m/\d+/) {	# If revision exists and is a numeric value
     return ReadDB("$ArchiveDir/$archive/$file.$revision");
@@ -1243,18 +1243,25 @@ sub DoEdit {
     print "<p>Editing version $revision of page $Page";
     if($revision != LatestRevision($Page)) {
       print " (the most recent revision is ".LatestRevision($Page).")";
+    } elsif($revision == LatestRevision($Page)) {
+      print " (this is the most recent revision)";
     }
   } else {
     print "<p>Editing the new page $Page";
   }
   print "</p>";
 
+  if(IsSpecialPage($Page)) {
+    print $q->p($q->em("Note: This page is defined as a special page, ".
+      "and as such its final state may be different from what you see here."));
+  }
+
   if($preview) {
     print "<div class=\"preview\">" . Markup($contents) . "</div>";
   }
 
   if($canedit) {
-    RedHerringForm();
+    print RedHerringForm();
     print StartForm();
     #print '<form action="' . $ScriptName . '" method="post">';
     #print StartForm();
@@ -1639,7 +1646,7 @@ sub AdminForm {
   #$u.'" />';
   #print ' Pass: <input type="password" size="20" name="pass" value="'.$p.'" />';
   #print ' <input type="submit" value="Go" /></form>';
-  Form('login','post',
+  print Form('login','post',
     "User: ".$q->textfield(-name=>'user',-value=>$u,-size=>20,-maxlength=>30),
     " Pass: ".$q->password_field(-name=>'pass',-value=>$p,-size=>20),
     " ".$q->submit(-value=>'Go'));
@@ -1822,7 +1829,7 @@ sub DoAdminBlock {
   #  "<input type='hidden' name='doing' value='blocklist' />".
   #  "<textarea name='blocklist' rows='30' cols='100'>".$blocked.
   #  "</textarea><br/><input type='submit' value='Save' /></form>";
-  Form('blocklist','post',
+  print Form('blocklist','post',
     $q->textarea(-name=>'blocklist', -rows=>30, -cols=>100, -default=>$blocked),
     "<br/>", $q->submit('Save')
   );
@@ -1846,7 +1853,7 @@ sub DoAdminBannedContent {
   #  "<input type='hidden' name='doing' value='bannedcontent' />".
   #  "<textarea name='bannedcontent' rows='30' cols='100'>".$content.
   #  "</textarea><br/><input type='submit' value='Save' /></form>";
-  Form('bannedcontent', 'post',
+  print Form('bannedcontent', 'post',
     $q->textarea(-name=>'bannedcontent', -rows=>30, -cols=>100,
       -default=>$content),"<br/>",
     $q->submit('Save')
@@ -1876,7 +1883,7 @@ sub DoAdminCSS {
     #  "<input type='hidden' name='doing' value='css' />".
     #  "<textarea name='css' rows='30' cols='100'>".$content.
     #  "</textarea><br/><input type='submit' value='Save' /></form>";
-    Form('css','post',
+    print Form('css','post',
       $q->textarea(-name=>'css', -rows=>30, -cols=>100, -default=>$content),
       "<br/>", $q->submit('Save')
     );
@@ -1903,7 +1910,7 @@ sub DoAdminListFiles {
 sub DoAdminRobotsTxt {
   my $content = FileToString("$DataDir/robots.txt");
   print $q->p("For more information about robots.txt, see <a href=\"http://www.robotstxt.org/\">http://www.robotstxt.org/</a>");
-  Form('robotstxt', 'post',
+  print Form('robotstxt', 'post',
     $q->textarea(-name=>'robotstxt', -rows=>30, -cols=>100, -default=>$content),
     "<br/>", $q->submit('Save')
   );
@@ -1973,7 +1980,7 @@ sub Init {
 sub RedHerringForm {
   # This sub will print the "red herring" or honeypot form. This is an
   #  anti-spam measure.
-  print '<form action="'.$ScriptName.'" method="post" style="display:none;">'.
+  return '<form action="'.$ScriptName.'" method="post" style="display:none;">'.
     '<input type="hidden" name="doing" value="commenting" />'.
     '<input type="hidden" name="file" value="'.$Page.'" />'.
     'Name: <input type="text" name="hname" size="20" /><br/>'.
@@ -1989,12 +1996,18 @@ sub StartForm {
 
 sub Form {
   my ($doing, $method, @elements) = @_;
-  print StartForm($method);
-  print $q->hidden(-name=>'doing', -value=>$doing);
+  my $return;
+  #print StartForm($method);
+  $return = StartForm($method);
+  #print $q->hidden(-name=>'doing', -value=>$doing);
+  $return .= $q->hidden(-name=>'doing', -value=>$doing);
   foreach (@elements) {
-    print $_;
+    #print $_;
+    $return .= $_;
   }
-  print "</form>";
+  #print "</form>";
+  $return .= "</form>";
+  return $return;
 }
 
 sub AntiSpam {
@@ -2089,7 +2102,7 @@ sub DoDiscuss {
       $newtext = join("\n\n", @ta);
     }
   }
-  RedHerringForm();
+  print RedHerringForm();
   print "<p id=\"discuss-form\"></p><form action='$ScriptName' method='post'>
     <input type='hidden' name='doing' value='discuss' />
     <input type='hidden' name='file' value='$Page' />
@@ -2225,7 +2238,7 @@ sub DoSearchShortCode {
     shift @searchextras;
   }
   my $searchtext = $search; $searchtext =~ s/ /+/g;
-  return "<a href=\"$ShortUrl?do=search;search=$searchtext\" ".
+  return "<a href=\"$Url?do=search;search=$searchtext\" ".
     "title=\"Search for '$searchtext'\">$search</a>";
 }
 
@@ -2462,7 +2475,7 @@ sub DoHistory {
 	  "value=\"Revert\"> ".
 	  #" <a href=\"$Url?do=revision;page=$Page;".
 	  #"revision=$f{revision}\"> Revision $f{revision}</a>";
-	  CommandLink('revision',$Page,"Revision $f{revision}",
+	  CommandLink('',$Page,"Revision $f{revision}",
 	    "View revision $f{revision}","revision=$f{revision}");
 	#if($nextrev) {
  	#  print " (<a href='$ShortUrl?do=diff;page=$Page;$nextrev'>".
@@ -2977,10 +2990,15 @@ sub DoRandom {
 }
 
 sub PageExists {
-  my $pagename = shift;
+  my ($pagename, $revision) = @_;
   # $archive will be the 1-letter dir under /archive that we're writing to
   my $archive = substr($pagename,0,1); $archive =~ tr/[a-z]/[A-Z]/;
-  if(-f "$PageDir/$archive/$pagename") {
+  if($revision and $revision !~ m/\d+/) {
+    $revision = '';
+  }
+  if($revision and -f "$ArchiveDir/$archive/$pagename.$revision") {
+    return 1;
+  } elsif(-f "$PageDir/$archive/$pagename" and !$revision) {
     return 1;
   } else {
     return 0;
@@ -3000,36 +3018,6 @@ sub DiscussCount {
     return scalar(@comments);
   } else {
     return 0;
-  }
-}
-
-sub DoRevision {
-  #if($ArgList =~ m/rev=(\d{1,})$/) {
-  if(GetParam('revision',0)) {
-    $PageRevision = GetParam('revision'); #$1;
-    if(-f "$ArchiveDir/$ShortDir/$Page.$PageRevision") {
-      my %Filec = ReadDB("$ArchiveDir/$ShortDir/$Page.$PageRevision");
-      print "<p style=\"font-weight: bold;\">You are viewing Revision ".
-	"$Filec{revision} of <a href=\"$ShortUrl$Page\">$Page".
-	"</a></p><hr/>\n";
-      if($Filec{text} =~ m/^#FILE /) {
-	# This is a file, and should be shown as such.
-        print $q->p("This page contains a file:");
-        #print $q->pre($q->a({-href=>"$ShortUrl?do=download;page=$Page"},
-        #  ($Filec{filename}) ? $Filec{filename} : $Page));
-	print $q->pre(CommandLink('download',$Page,
-	  ($Filec{filename}) ? $Filec{filename} : $Page, 'View file',
-	  (GetParam('revision')) ? 'revision='.GetParam('revision') : ''));
-      } elsif(exists &Markup) {
-        print Markup($Filec{text});
-      } else {
-        print join("\n", $Filec{text});
-      }
-    } else {
-      print "That revision does not exist!";
-    }
-  } else {
-    print "What are you trying to do?";
   }
 }
 
@@ -3126,9 +3114,11 @@ sub CommandLink {
   my $ret;
   $ret = $Url;
   if($pg) { $ret .= $pg; }
-  $ret .= "?do=$do";
+  $ret .= "?";
+  $ret .= "do=$do" if $do;
   #$ret .= ";page=$pg" if $pg;
-  $ret .= ";".join(';',@extras) if @extras;
+  if($do and @extras) { $ret .= ";"; }
+  $ret .= join(';',@extras) if @extras;
   return $q->a({-href=>$ret, -title=>$title, -rel=>'nofollow'}, $text);
 }
 
@@ -3165,24 +3155,6 @@ sub DoRequest {
     return;
   }
 
-  # Searching from outside our domain?
-  #if(GetParam('search')) {
-  #  my $referer = $q->referer;
-  #  my $host = $ENV{'HTTP_HOST'};
-  #  #unless($referer =~ m/$host/) {
-  #  # It seems like bots are using the blank search URL as the referer to
-  #  #  bypass the check on referer. Seeing as how a legitimate user should
-  #  #  have a very small chance of coming from this URL and submitting a 
-  #  #  legit search, we'll go ahead and block that also.
-  #  if(($referer =~ m!\?do=search&search=$!) or ($referer !~ m/$host/)) {
-  #    ErrorPage(501, "You're attempting to search from outside the site. ".
-#	"This has been identified as a potentially abusive behavior, and has ".
-#	"been blocked. Please feel free to use the search form to try your ".
-#	"search again.");
-  #    return;
-  #  }
-  #}
-
   # Raw handler?
   if(IsRawHandler(GetParam('do',''))) {
     &{$Commands{GetParam('do')}};
@@ -3201,28 +3173,28 @@ sub DoRequest {
     return;
   }
 
+  # Seeking a revision?
+  my $rev = GetParam('revision','');
+  if($rev and $rev !~ m/\d+/) { $rev = ''; }
+
   # Check if page exists or not, and not calling a command
   #if(! -f "$PageDir/$ShortDir/$Page" and !$command and !$Commands{$command}) {
-  if(! -f "$PageDir/$ShortDir/$Page" and !GetParam('do') and !$Commands{GetParam('do')}){ # and !IsSpecialPage()) {
+  #if(! -f "$PageDir/$ShortDir/$Page" and !GetParam('do') and !$Commands{GetParam('do')}){ # and !IsSpecialPage()) {
+  if(!PageExists($Page, $rev) and !GetParam('do') and !$Commands{GetParam('do')}) {
     #$HTTPStatus = "Status: 404 Not Found\n";
     $HTTPStatus = "404 Not Found";
   }
 
   # Check if we're looking for a revision, and see if it exists...
   # Unfortunately this is the best place to check, but I still don't like it.
-  #if($command eq 'revision') {
-  if(GetParam('do') eq 'revision') {
-    #if($ArgList =~ m/rev=(\d{1,})$/) {
-    #if(defined $Param{rev}) {
-    if(GetParam('revision')) {
-      #my $rev = $1;
-      my $rev = GetParam('revision'); #$Param{rev};
-      if(! -f "$ArchiveDir/$ShortDir/$Page.$rev") {
-	#$HTTPStatus = "Status: 404 Not Found\n";
-	$HTTPStatus = "404 Not Found";
-      }
-    }
-  }
+  #if(GetParam('do') eq 'revision') {
+  #  if(GetParam('revision')) {
+  #    my $rev = GetParam('revision'); #$Param{rev};
+  #    if(! -f "$ArchiveDir/$ShortDir/$Page.$rev") {
+#	$HTTPStatus = "404 Not Found";
+  #    }
+  #  }
+  #}
 
   # Build $SearchPage
   $SearchPage = $PageName;    # SearchPage is PageName with + for spaces
@@ -3255,12 +3227,26 @@ sub DoRequest {
     if(!PageExists($Page)) {
       print $NewPage;
     } else {
-      %Filec = GetPage($Page);
-      #if($Filec{text} =~ m/^#FILE /) {
-      if(PageIsFile($Page)) {
+      %Filec = GetPage($Page, $rev);
+      if($rev and !PageExists($Page, $rev)) {
+	print $q->p("That revision of ".$q->a({-href=>"$Url$Page"}, $Page).
+	  " does not exist!");
+      }
+      if($rev and PageExists($Page, $rev)) {
+	print $q->p({-style=>"font-weight: bold;"}, 
+	  "You are viewing Revision $Filec{revision} of ".
+	  $q->a({-href=>"$Url$Page"}, $Page).$q->hr);
+      }
+      if($Filec{text} =~ m/^#FILE /) {
+      #if(PageIsFile($Page, $rev)) {
 	print $q->p("This page contains a file:");
-	print $q->pre($q->a({-href=>"$ShortUrl?do=download;page=$Page"},
-	  ($Filec{filename}) ? $Filec{filename} : $Page));
+	#print $q->pre($q->a({-href=>"$ShortUrl?do=download;page=$Page"},
+	#  ($Filec{filename}) ? $Filec{filename} : $Page));
+	#print $q->pre(CommandLink('download', $Page, 
+	#  ($Filec{filename}) ? $Filec{filename} : $Page, 'Download file'));
+	print $q->pre(CommandLink('download',$Page,
+          ($Filec{filename}) ? $Filec{filename} : $Page, 'View file',
+          (GetParam('revision')) ? 'revision='.GetParam('revision') : ''));
       } elsif(exists &Markup) {	# If there's markup defined, do markup
 	print Markup($Filec{text});
       } else {
