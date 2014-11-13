@@ -3178,23 +3178,10 @@ sub DoRequest {
   if($rev and $rev !~ m/\d+/) { $rev = ''; }
 
   # Check if page exists or not, and not calling a command
-  #if(! -f "$PageDir/$ShortDir/$Page" and !$command and !$Commands{$command}) {
-  #if(! -f "$PageDir/$ShortDir/$Page" and !GetParam('do') and !$Commands{GetParam('do')}){ # and !IsSpecialPage()) {
   if(!PageExists($Page, $rev) and !GetParam('do') and !$Commands{GetParam('do')}) {
     #$HTTPStatus = "Status: 404 Not Found\n";
     $HTTPStatus = "404 Not Found";
   }
-
-  # Check if we're looking for a revision, and see if it exists...
-  # Unfortunately this is the best place to check, but I still don't like it.
-  #if(GetParam('do') eq 'revision') {
-  #  if(GetParam('revision')) {
-  #    my $rev = GetParam('revision'); #$Param{rev};
-  #    if(! -f "$ArchiveDir/$ShortDir/$Page.$rev") {
-#	$HTTPStatus = "404 Not Found";
-  #    }
-  #  }
-  #}
 
   # Build $SearchPage
   $SearchPage = $PageName;    # SearchPage is PageName with + for spaces
