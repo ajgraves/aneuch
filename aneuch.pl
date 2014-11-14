@@ -567,6 +567,7 @@ sub Markup {
   my @build;			# What will be returned
   my $line;			# Line-by-line
   my $nowiki = 0;		# #NOWIKI
+  my $pre = 0;			# <pre>
   my $c;
   my $extra;
   foreach $line (@contents) {
@@ -576,16 +577,16 @@ sub Markup {
     if(!$nowiki and ($line =~ m/^#NOWIKI$/ or $line =~ m/^\{{3}$/)) {
       $nowiki = 1;
       push @build, "<!--#NOWIKI-->";
-      if($line =~ m/^\{{3}$/) { push @build, "<pre>"; }
+      if($line =~ m/^\{{3}$/) { push @build, "<pre>"; $pre = 1; }
       next;
     }
     if($nowiki and ($line !~ m/^#NOWIKI$/ and $line !~ m/^\}{3}$/)) { 
-      push @build, $line;
+      push @build, ($pre) ? QuoteHTML($line) : $line;
       next;
     }
     if($nowiki and ($line =~ m/^#NOWIKI$/ or $line =~ m/^\}{3}$/)) {
       $nowiki = 0;
-      if($line =~ m/^\}{3}$/) { push @build, "</pre>"; }
+      if($line =~ m/^\}{3}$/) { push @build, "</pre>"; $pre = 0; }
       push @build, "<!--#NOWIKI-->";
       next;
     }
