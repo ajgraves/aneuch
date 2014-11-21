@@ -54,8 +54,8 @@ my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
 
-$VERSION = '0.41';	# Set version number
-$VERSIONID = '0041';	# Version ID
+$VERSION = '0.50';	# Set version number
+$VERSIONID = '0050';	# Version ID
 
 # Subs
 sub InitConfig  {
