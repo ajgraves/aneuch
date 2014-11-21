@@ -54,8 +54,8 @@ my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
 
-$VERSION = '0.41';	# Set version number
-$VERSIONID = '0041';	# Version ID
+$VERSION = '0.42';	# Set version number
+$VERSIONID = '0042';	# Version ID
 
 # Subs
 sub InitConfig  {
@@ -1477,8 +1477,8 @@ sub WriteDB {
   my %filedata = %{shift()};
   $filename =~ m/^(.*)$/; $filename = $1;
   open(FILE, ">$filename") or push @Messages, "WriteDB: Unable to write to $filename: $!";
-  flock(LOGFILE, LOCK_EX);	# Lock, exclusive
-  seek(LOGFILE, 0, SEEK_SET);	# Go to beginning of file...
+  flock(FILE, LOCK_EX);	# Lock, exclusive
+  seek(FILE, 0, SEEK_SET);	# Go to beginning of file...
   foreach my $key (sort keys %filedata) {
     $filedata{$key} =~ s/\n/\n\t/g;
     $filedata{$key} =~ s/\r//g;
