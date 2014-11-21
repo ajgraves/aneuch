@@ -149,7 +149,7 @@ sub InitVars {
     $ENV{'QUERY_STRING'} = '';
   }
   if(GetParam('page') and !$Page) {
-    $Page = GetParam('page');
+    $Page = GetParam('page','');
   }
   $Page =~ s/^\/{1,}//;
   #$Page =~ s/\//./g;
@@ -226,20 +226,14 @@ sub InitVars {
       $EditText = CommandLink('edit', $Page, 'Read Only', 'Read only page',
 	(GetParam('revision')) ? 'revision='.GetParam('revision') : '');
     }
-    #$RevisionsText = '<a title="Click here to see info and history" '.
-    #  'rel="nofollow" href="'.$ShortUrl;
-    #if($ShortUrl !~ m/\?$/) { $RevisionsText .= "?"; }
-    #$RevisionsText .= 'do=history;page='.$Page.'">Page Info &amp; History</a>';
     $RevisionsText = CommandLink('history',$Page,'Page Info &amp; History',
       'Click here to see info and history');
   }
 
   # Admin link
-  #$AdminText = "<a title=\"Administration options\" rel=\"nofollow\" href=\"$ShortUrl?do=admin;page=admin\">Admin</a>";
   $AdminText = AdminLink('','Admin');
 
   # Random link
-  #$RandomText = "<a title=\"Random page\" rel=\"nofollow\" href=\"$ShortUrl?do=random;page=$Page\">Random Page</a>";
   $RandomText = CommandLink('random',$Page,'Random Page',
     'Navigate to a random page');
 
@@ -343,10 +337,6 @@ sub InitVars {
   if($Page eq "robots.txt") { SetParam('do','robotstxt'); }
 
   # Maintenance actions FIXME: No fancy Reg* sub (yet)
-  #%MaintActions = (
-  #  purgerc => \&DoMaintPurgeRC,	purgetemp => \&DoMaintPurgeTemp,
-  #  purgeoldr => \&DoMaintPurgeOldRevs, trimvisit => \&DoMaintTrimVisit,
-  #);
   RegMaintAction('purgerc', \&DoMaintPurgeRC);
   RegMaintAction('purgeoldr', \&DoMaintPurgeOldRevs);
   RegMaintAction('purgetemp', \&DoMaintPurgeTemp);
@@ -374,9 +364,6 @@ sub DoPostInit {
 
 sub DoHeader {
   if(!$Template or !-d "$TemplateDir/$Template") {
-    #chomp(my @TEMPLATE = <DATA>);
-    #($Header, $Footer) = split("!!CONTENT!!", join("\n", @TEMPLATE));
-    #print Interpolate($Header);
     print "<!DOCTYPE html>\n".
       '<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">'.
       "<head><title>$PageName - $SiteName</title>\n".
@@ -386,7 +373,6 @@ sub DoHeader {
       "<div id=\"header\"><div id=\"searchbox\">".SearchForm().
       "</div>\n".
       "<a title=\"Return to $DefaultPage\" href=\"$Url\">$SiteName</a>: <h1>";
-    #if(PageExists(GetParam('page',''))) {
     if(PageExists($Page)) {
       print "<a title=\"Search for references to $SearchPage\" ".
 	"rel=\"nofollow\" href=\"$ShortUrl?do=search;search=".
@@ -411,9 +397,6 @@ sub DoHeader {
 
 sub DoFooter {
   if(!$Template or !-d "$TemplateDir/$Template") {
-    #chomp(my @TEMPLATE = <DATA>);
-    #print Interpolate((split(/!!CONTENT!!/, join("\n", @TEMPLATE)))[1]);
-    #print Interpolate($Footer);
     print '<span id="bottom"></span></div> <!-- content -->'.
       '<div class="navigation">'."<ul>";
     # If we want discussion pages
@@ -474,7 +457,9 @@ sub MarkupBuildLink {
   } else {			# Internal link!
     my $testhref = (split(/#/,$href))[0];
     $testhref = (split(/\?/,$testhref))[0];
-    if((PageExists(ReplaceSpaces($testhref))) or ($testhref =~ m/^\?/) or (ReplaceSpaces($testhref) =~ m/^$DiscussPrefix/) or ($testhref =~ m/^$url/) or ($testhref eq '') or (!CanEdit())) {
+    if((PageExists(ReplaceSpaces($testhref))) or ($testhref =~ m/^\?/)
+     or (ReplaceSpaces($testhref) =~ m/^$DiscussPrefix/)
+     or ($testhref =~ m/^$url/) or ($testhref eq '') or (!CanEdit())) {
       $return = "<a title='".ReplaceSpaces($href)."' href='";
       if(($href !~ m/^$url/) and ($href !~ m/^#/)) {
 	$return .= $Url.ReplaceSpaces($href);
@@ -1306,15 +1291,9 @@ sub DoEdit {
       print $q->p("Summary:<br/>".$q->textarea(-name=>'summary',
 	-cols=>'100', -rows=>'2', -style=>'width:100%;',
 	-placeholder=>'Edit summary (required)', -default=>$summary));
-      #print ' User name: <input type="text" name="uname" size="30" value="'.$UserName.'" /> ';
       print '<p>User name: '.$q->textfield(-name=>'uname',
-	-size=>'30', -value=>$UserName)." "; #.$q->a({-rel=>'nofollow',
-	#-href=>"$ShortUrl?do=delete;page=$Page"}, "Delete Page"), " ";
-      #print ' <a rel="nofollow" href="'.$ShortUrl.'?do=delete;page='.$Page.'">'.
-	#'Delete Page</a> ';
-      #print $q->a({-rel=>'nofollow', -href=>"$ShortUrl?do=delete;page=$Page"},
-	#"Delete Page");
-      AntiSpam();
+	-size=>'30', -value=>$UserName)." ";
+      print AntiSpam();
       if(GetParam('upload')) {
 	print $q->submit(-name=>'whattodo', -value=>'Upload'), " ";
       } else {
@@ -1477,8 +1456,8 @@ sub WriteDB {
   my %filedata = %{shift()};
   $filename =~ m/^(.*)$/; $filename = $1;
   open(FILE, ">$filename") or push @Messages, "WriteDB: Unable to write to $filename: $!";
-  flock(LOGFILE, LOCK_EX);	# Lock, exclusive
-  seek(LOGFILE, 0, SEEK_SET);	# Go to beginning of file...
+  flock(FILE, LOCK_EX);		# Lock, exclusive
+  seek(FILE, 0, SEEK_SET);	# Go to beginning of file...
   foreach my $key (sort keys %filedata) {
     $filedata{$key} =~ s/\n/\n\t/g;
     $filedata{$key} =~ s/\r//g;
@@ -2024,10 +2003,13 @@ sub AntiSpam {
     return;			#  0 if there are 0 elements, which with the
   } else {			#  '!' used here, will match and exit.
     my $question = (keys %QuestionAnswer)[rand keys %QuestionAnswer];
-    print '<input type="hidden" name="session" value="'. unpack("%32W*",$question) % 65535;
-    print '" />';
-    print "<br/><br/>$question&nbsp;";
-    print '<input type="text" name="answer" size="30" /> ';
+    #print '<input type="hidden" name="session" value="'. unpack("%32W*",$question) % 65535;
+    #print '" />';
+    #print "<br/><br/>$question&nbsp;";
+    #print '<input type="text" name="answer" size="30" /> ';
+    return $q->hidden(-name=>'session',
+      -value=>unpack("%32W*", $question) % 65535).$q->br.$q->br.
+      "$question&nbsp;".$q->textfield(-name=>'answer', -size=>'30').'&nbsp;';
   }
 }
 
@@ -2113,7 +2095,7 @@ sub DoDiscuss {
     print" cols='80' rows='10'>$newtext</textarea><br/><br/>
     Name: <input type='text' name='uname' size='30' value='$UserName' /> 
     URL (optional): <input type='text' name='url' size='50' />";
-  AntiSpam();
+  print AntiSpam();
   print " <input type='submit' name='whattodo' value='Save' />
     <input type='submit' name='whattodo' value='Preview' /></form>";
   print '<script language="javascript" type="text/javascript">'.
@@ -2536,8 +2518,9 @@ sub ReDirect {
 sub DoPostingSpam {
   # Someone submitted the red herring form!
   my $redir = $Url;
-  if($redir !~ m/\?$/) { $redir .= "?"; }
-  $redir .= "do=spam;page=".GetParam('file');
+  #if($redir !~ m/\?$/) { $redir .= "?"; }
+  #$redir .= "do=spam;page=".GetParam('file');
+  $redir .= GetParam('file')."?do=spam";
   ReDirect($redir);
 }
 
