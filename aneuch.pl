@@ -1,6 +1,6 @@
 #!/usr/bin/perl -wT
 ## **********************************************************************
-## Copyright (c) 2012-2014, Aaron J. Graves (cajunman4life@gmail.com)
+## Copyright (c) 2012-2015, Aaron J. Graves (cajunman4life@gmail.com)
 ## All rights reserved.
 ##
 ## Redistribution and use in source and binary forms, with or without 
@@ -296,6 +296,7 @@ sub InitVars {
   # 'password' has to be set by itself, since technically there isn't a menu
   #  item for it in the %AdminList (it's hard coded)
   $AdminActions{'password'} = \&DoAdminPassword;
+  $AdminActions{'dashboard'} = \&DoAdminDashboard;
   RegAdminPage('version', 'View version information', \&DoAdminVersion);
   RegAdminPage('index', 'List all pages', \&DoAdminIndex);
   RegAdminPage('reindex', 'Rebuild page index', \&DoAdminReIndex);
@@ -1484,6 +1485,10 @@ sub DoAdminPassword {
   } else {
     print $q->p("Your user name is set to '$u'.");
   }
+  if(IsAdmin()) {
+    print $q->p("You are currently authenticated as a site admin. ".
+      "To unset this, clear the \"Pass\" field below, and click \"Go\".");
+  }
   AdminForm();
 }
 
@@ -1494,7 +1499,7 @@ sub DoAdminVersion {
     ", the <a href='http://www.aneuch.org/' target='_blank'>".
     "Aneuch Wiki Engine</a>");
   foreach my $c (keys %Plugins) {
-    print $q->p("$c: $Plugins{$c}");
+    print $q->p({-style=>'margin-left:20px;'},"$c: $Plugins{$c}");
   }
   print $q->p("CGI.pm, version ".$CGI::VERSION);
   print $q->p($ENV{'SERVER_SOFTWARE'});
@@ -1593,7 +1598,10 @@ sub DoAdminListVisitors {
     print QuoteHTML($ip)."</strong> (<strong>".QuoteHTML($user)."</strong>)";
     if($do) {
       print " ".CommandDisplay($do, $pg, $revision);
-    } else { print " hit page <strong>".QuoteHTML($pg)."</strong>"; }
+    } else {
+      print " hit page <strong>".QuoteHTML($pg)."</strong>";
+      if($revision) { print " (revision <strong>$revision</strong>)"; }
+    }
     if($status) {
       print " (<em>$status</em>)";
     }
@@ -1603,17 +1611,37 @@ sub DoAdminListVisitors {
 }
 
 sub DoAdminLock {
-  if(!-f "$DataDir/lock") {
-    open(LOCKFILE,">$DataDir/lock") or push @Messages, "DoAdminLock: Unable to write to lock: $!";
-    print LOCKFILE "";
-    close(LOCKFILE);
-    print "Site is locked.";
-  } else {
-    if(unlink "$DataDir/lock") {
-      print "Site has been unlocked.";
+  #if(!-f "$DataDir/lock") {
+  #  open(LOCKFILE,">$DataDir/lock") or push @Messages, "DoAdminLock: Unable to write to lock: $!";
+  #  print LOCKFILE "";
+  #  close(LOCKFILE);
+  #  print "Site is locked.";
+  #} else {
+  #  if(unlink "$DataDir/lock") {
+  #    print "Site has been unlocked.";
+  #  } else {
+  #    print "Error while attempting to unlock the site: $!";
+  #  }
+  #}
+  if(GetParam('confirm','no') eq "yes") {
+    if(-f "$DataDir/lock") {
+      if(unlink "$DataDir/lock") {
+	print $q->p("Site has been unlocked.");
+      } else {
+	print $q->p("Error while attempting to unlock the site: $!");
+      }
     } else {
-      print "Error while attempting to unlock the site: $!";
+      StringToFile("","$DataDir/lock");
+      print $q->p("Site has been locked.");
     }
+  } else {
+    if(-f "$DataDir/lock") {
+      print $q->p("Are you sure you want to unlock the site?");
+    } else {
+      print $q->p("Are you sure you want to lock the site?");
+    }
+    print $q->p(AdminLink('lock', "YES", 'confirm=yes')."&nbsp;&nbsp;".
+      $q->a({-href=>"javascript:history.go(-1)"},"NO"));
   }
 }
 
@@ -1663,9 +1691,13 @@ sub DoAdminCSS {
     }
   } else {
     my $content = DoCSS();
-    print "<p>You may edit your site's CSS here. If you need to, you may ".
-      AdminLink('css','restore the default','action=restore').
-      " configuration.</p>";
+    print "<p>You may edit your site's CSS here. ";
+    if(-f "$DataDir/style.css") {
+      print AdminLink('css','Restore to default CSS','action=restore');
+    } else {
+      print "This is the default CSS, and has not been modified.";
+    }
+    print "</p>";
     print Form('css','post',
       $q->textarea(-name=>'css', -rows=>30, -cols=>100, -default=>$content),
       "<br/>", $q->submit('Save')
@@ -1697,32 +1729,114 @@ sub DoAdminRobotsTxt {
   );
 }
 
+sub DoAdminDashboard {
+  print $q->h2('Dashboard');
+  print $q->p('This is Aneuch, '.
+    AdminLink('version',"version $VERSION (build $VERSIONID)").'.');
+  my ($u,$p) = ReadCookie();
+  print "<p>You are currently authenticated as '$u' and ".
+    ((IsAdmin()) ? 'are' : 'are not').
+    " an administrator.</p>";
+  print Form('login','post',
+    $q->hidden(-name=>'user', -value=>$u).
+    $q->hidden(-name=>'pass', -value=>'').
+    $q->submit(-value=>'Log out'));
+  print $q->h3('Database Info');
+  print "<p>There are currently ".
+    AdminLink('index',Commify(scalar(ListAllPages()))." pages").
+    " in the page database. There are ".Commify(CountAllRevisions()).
+    " page revisions stored in the database.";
+  if($CountPageVisits) {
+    print " There are ".Commify(GetTotalViewCount()).
+      " total page views.";
+  }
+  print "</p>";
+  print $q->h3('Banned Content');
+  my $content = FileToString($BannedContent);
+  print $q->p("Your site is protected against certain types of content by ".
+    AdminLink('bannedcontent',
+      Commify(scalar(grep { length($_) and $_ !~ /^#/ } split(/\n/,$content))).
+    " rules").".");
+  print $q->h3('Banned Users');
+  $content = FileToString($BlockedList);
+  print $q->p("You have entered ".
+    AdminLink('block',
+      Commify(scalar(grep { length($_) and $_ !~ /^#/ } split(/\n/,$content))).
+      " rules").
+    " for blocking users via IP address.");
+}
+
 sub DoAdmin {
   # Command? And can we run it?
-  if($Page and $AdminActions{$Page}) {
-    if($Page eq 'password' or IsAdmin()) {
-      &{$AdminActions{$Page}};	# Execute it.
-      print $q->p(AdminLink('',"&larr; Admin Menu"));
-    }
+  #if($Page and $AdminActions{$Page}) {
+  #  if($Page eq 'password' or IsAdmin()) {
+  #    &{$AdminActions{$Page}};	# Execute it.
+  #    print $q->p(AdminLink('',"&larr; Admin Menu"));
+  #  }
+  #} else {
+  #  print '<p>You may:<ul><li><a href="'.$Url.
+  #  '?do=admin;page=password">Authenticate</a></li>';
+  #  if(IsAdmin()) {
+  #    my %al = reverse %AdminList;
+  #    foreach my $listitem (sort keys %al) {
+#	unless($listitem eq '') {
+#	  print $q->li(AdminLink($al{$listitem},$listitem));
+#	}
+  #    }
+  #  }
+  #  print '</ul></p>';
+  #  print '<p>This site has ' . Commify(scalar(ListAllPages())) . ' pages, '.
+  #    Commify(CountAllRevisions()).' revisions';
+  #  if($CountPageVisits) {
+  #    print ", and ".Commify(GetTotalViewCount()).' page views';
+  #  }
+  #  print ".</p>";
+  #}
+
+  # Set default page
+  if($Page eq 'admin') {
+    $Page = (IsAdmin()) ? 'dashboard' : 'password';
+  }
+
+  # Set the description for lock action
+  # NOTE: The line below does nothing currently.
+  #$AdminList{'lock'} = (-f "$DataDir/lock") ? 'Unlock the site' : 'Lock the site';
+
+  #print '<div class="admin">';
+  print '<table width=100%><tr valign=top><td class="admin">';
+  print "<ul>";
+  if($Page eq 'password') {
+    print $q->li({class=>'current'},AdminLink('password','Authenticate'));
   } else {
-    print '<p>You may:<ul><li><a href="'.$Url.
-    '?do=admin;page=password">Authenticate</a></li>';
-    if(IsAdmin()) {
-      my %al = reverse %AdminList;
-      foreach my $listitem (sort keys %al) {
-	unless($listitem eq '') {
-	  print $q->li(AdminLink($al{$listitem},$listitem));
-	}
+    print $q->li(AdminLink('password','Authenticate')) unless IsAdmin();
+  }
+  if(IsAdmin()) {
+    if($Page eq 'dashboard') {
+      print $q->li({class=>'current'},AdminLink('dashboard','Dashboard'));
+    } else {
+      print $q->li(AdminLink('dashboard','Dashboard'));
+    }
+    my %al = reverse %AdminList;
+    foreach my $listitem (sort keys %al) {
+      next if $listitem eq '';
+      if($Page eq $al{$listitem}) {
+	print $q->li({class=>'current'},AdminLink($al{$listitem},$listitem));
+      } else {
+	print $q->li(AdminLink($al{$listitem},$listitem));
       }
     }
-    print '</ul></p>';
-    print '<p>This site has ' . Commify(scalar(ListAllPages())) . ' pages, '.
-      Commify(CountAllRevisions()).' revisions';
-    if($CountPageVisits) {
-      print ", and ".Commify(GetTotalViewCount()).' page views';
-    }
-    print ".</p>";
   }
+  #print '</div>'; #End of admin menu, now print page
+  print "</td><td style='padding-left:20px;'>";
+  #print '<div style="padding-left:10px;">';
+  if($Page and $AdminActions{$Page}) {
+    if($Page eq 'password' or IsAdmin()) {
+      &{$AdminActions{$Page}};
+    }
+  }
+  #print '</div>';
+  #print '<div style="clear:both;"></div>'; #End of admin
+  print '</td></tr></table>';
 }
 
 sub Init {
@@ -2246,7 +2360,7 @@ sub DoPostingSpam {
 
 sub DoPostingLogin {
   SetCookie(GetParam('user'), GetParam('pass'));
-  ReDirect($Url);
+  ReDirect($Url."?do=admin");
 }
 
 sub DoPostingEditing {
@@ -2391,7 +2505,7 @@ sub DoVisit {
     $PageRevision = GetParam('revision');
   }
   if($MaxVisitorLog > 0) {
-    my $logentry = "$UserIP\t$TimeStamp\t$mypage\t".GetParam('do').
+    my $logentry = "$UserIP\t$TimeStamp\t$mypage\t".GetParam('do','').
       "\t$PageRevision\t$HTTPStatus\t$UserName";
     open(LOGFILE,">>$VisitorLog");
     flock(LOGFILE, LOCK_EX);		# Lock, exclusive
@@ -3155,4 +3269,32 @@ input {
 
 .new {
   background-color: lightgreen;
+}
+
+.admin {
+  background-color: #333;
+  width:250px;
+  /*position: relative;
+  float: left;*/
+}
+
+.admin ul {
+  margin: 0;
+  padding: 0;
+  list-style-type: none;
+}
+
+.admin ul li a {
+  text-decoration: none;
+  color: white !important;
+  padding: 10px;
+  /*background-color: #47F;*/
+  display: block;
+  border-bottom: 1px solid #fff;
+}
+
+.admin ul li.current a, .admin ul li a:hover {
+  color: #000 !important;
+  background-color: rgb(129,187,242);
+  text-decoration: none !important;
 }
