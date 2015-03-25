@@ -312,6 +312,7 @@ sub InitVars {
   RegAdminPage('files', "List uploaded files", \&DoAdminListFiles);
   RegAdminPage('robotstxt', "Modify your robots.txt file", \&DoAdminRobotsTxt);
   #RegAdminPage('getbannedcontentfile', '', \&DoAdminGetBannedContentFile);
+  RegAdminPage('templates', "List template pages", \&DoAdminListTemplates);
 
   # Register POSTing actions
   RegPostAction('login', \&DoPostingLogin);		# Login
@@ -1100,6 +1101,7 @@ sub DoEdit {
   $revision = GetParam('revision','');
   my $summary = GetParam('summary','');
   my $preview = 0;
+  my $template = GetParam('template',0);
   my %f;
 
   if($clear) {
@@ -1115,12 +1117,16 @@ sub DoEdit {
     return;
   }
 
+  # Get a list of templates
+  my @templates = ('None', ListAllTemplates());
+
   if(-f "$TempDir/$Page.$UserName") {
     %f = ReadDB("$TempDir/$Page.$UserName");
     $revision = $f{revision};
     chomp($contents = $f{text});
     $preview = 1;
     $summary = $f{summary};
+    $template = $f{template};
     RefreshLock();
   } else {
     %f = GetPage($Page, $revision);
@@ -1128,6 +1134,15 @@ sub DoEdit {
     if($clear) { $contents = ''; }
     $revision = $f{revision} if defined $f{revision};
     $revision = 0 unless $revision;
+    $template = $f{template};
+  }
+
+  # Are we supposed to be a template?
+  if(GetParam('use_template',0) and $clear) {
+    if(PageExists(GetParam('use_template'))) {
+      my %T = GetPage(GetParam('use_template'));
+      $contents = $T{text};
+    }
   }
 
   if($revision > 0) {
@@ -1153,6 +1168,16 @@ sub DoEdit {
 
   if($canedit) {
     print RedHerringForm();
+    # Template select
+    print StartForm('get');
+    print $q->hidden(-name=>'do', -value=>'edit');
+    print $q->hidden(-name=>'page', -value=>$Page);
+    print $q->p("Use template: ".
+      $q->popup_menu(-name=>'use_template', -values=>\@templates,
+        -onchange=>'this.form.submit()'));
+    print $q->hidden(-name=>'clear', -value=>1);
+    print "</form>";
+    # Main edit form
     print StartForm();
     my $doing = (GetParam('upload')) ? 'upload' : 'editing';
     print $q->hidden(-name=>'doing', -value=>$doing);
@@ -1169,6 +1194,10 @@ sub DoEdit {
     print $q->textarea(-name=>'text', -cols=>'100', -rows=>'25',
       -style=>'width:100%', -default=>$contents);
   }
+  # For templates
+  print $q->checkbox(-name=>'template', -checked=>$template, -value=>'1',
+    -label=>'Is this page a template?');
+
   if($canedit) {
     # Set a lock
     if($preview or SetLock()) {
@@ -1307,6 +1336,7 @@ sub WritePage {
   if(GetParam('fileupload')) {
     $F{filename} = GetParam('fileupload');
   }
+  $F{template} = GetParam('template');
   WriteDB("$PageDir/$archive/$file", \%F);
   UnLock($file);
   Index($file);
@@ -1421,6 +1451,26 @@ sub ListAllPages {
   s#^$PageDir/.*?/## for @files;
   @files = sort(@files);
   return @files;
+}
+
+sub ListAllFiles {
+  my @files;
+  open(FL, "grep -Prli '^text: #FILE ' $PageDir 2>/dev/null |");
+  while(<FL>) {
+    push @files, $1 if m#^$PageDir/.{1}/(.*)$#;
+  }
+  close(FL);
+  return @files;
+}
+
+sub ListAllTemplates {
+  my @templates;
+  open(FL, "grep -Prli '^template: 1' $PageDir 2>/dev/null |");
+  while(<FL>) {
+    push @templates, $1 if m#^$PageDir/.{1}/(.*)$#;
+  }
+  close(FL);
+  return @templates;
 }
 
 sub CountAllRevisions {
@@ -1706,15 +1756,19 @@ sub DoAdminCSS {
 }
 
 sub DoAdminListFiles {
-  my @files;
-  open(FL, "grep -Prli '^text: #FILE ' $PageDir 2>/dev/null |");
-  while(<FL>) {
-    push @files, $1 if m#^$PageDir/.{1}/(.*)$#;
-  }
-  close(FL);
   print $q->p("Here is a list of pages that contain uploaded files:");
   print "<ul>";
-  foreach (@files) {
+  foreach (ListAllFiles()) {
+    print $q->li($q->a({-href=>$Url.$_}, $_));
+  }
+  print "</ul>";
+}
+
+sub DoAdminListTemplates {
+  # Get a list of templates
+  print $q->p("Here is a list of pages that are marked as templates:");
+  print "<ul>";
+  foreach (ListAllTemplates()) {
     print $q->li($q->a({-href=>$Url.$_}, $_));
   }
   print "</ul>";
@@ -1744,13 +1798,17 @@ sub DoAdminDashboard {
   print $q->h3('Database Info');
   print "<p>There are currently ".
     AdminLink('index',Commify(scalar(ListAllPages()))." pages").
-    " in the page database. There are ".Commify(CountAllRevisions()).
+    " and ".Commify(CountAllRevisions()).
     " page revisions stored in the database.";
   if($CountPageVisits) {
     print " There are ".Commify(GetTotalViewCount()).
       " total page views.";
   }
   print "</p>";
+  print $q->p('There are '.
+    AdminLink('files',Commify(scalar(ListAllFiles()))." uploaded files").
+    ' and '.AdminLink('templates',
+      Commify(scalar(ListAllTemplates()))." templates").".");
   print $q->h3('Banned Content');
   my $content = FileToString($BannedContent);
   print $q->p("Your site is protected against certain types of content by ".
@@ -2339,6 +2397,7 @@ sub Preview {
   $F{revision} = GetParam('revision');
   $F{text} = GetParam('text');
   $F{summary} = GetParam('summary');
+  $F{template} = GetParam('template');
   WriteDB("$TempDir/$tempfile", \%F);
 }
 
@@ -2979,6 +3038,11 @@ sub DoRequest {
       if($rev and !PageExists($Page, $rev)) {
 	print $q->p("That revision of ".$q->a({-href=>"$Url$Page"}, $Page).
 	  " does not exist!");
+      }
+      if($Filec{template} == 1) {
+	print $q->p({-style=>"font-style: italic; color: red;"},
+	  "This page is a template, and likely doesn't contain any useful ".
+	  "information.");
       }
       if($rev and PageExists($Page, $rev)) {
 	print $q->p({-style=>"font-weight: bold;"}, 
