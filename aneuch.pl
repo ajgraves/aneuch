@@ -49,7 +49,7 @@ $PurgeArchives $SearchPage $SearchBox $TemplateDir $Template $FancyUrls
 $SurgeProtectionCount @PostInitSubs $EditorLicenseText $AdminText $RandomText
 $CountPageVisits $PageVisitFile $q $Hostname @RawHandlers $UploadsAllowed
 @UploadTypes %ShortCodes %HTTPHeader %CommandsDisplay $PurgeDeletedPage
-$VERSIONID);
+$VERSIONID @DashboardItems);
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
@@ -881,6 +881,11 @@ sub UnregMaintAction {
   }
 }
 
+sub RegDashboardItem {
+  my $sref = shift;
+  push @DashboardItems, $sref;
+}
+
 sub GetParam {
   my ($ParamToGet, $Default) = @_;
   $Default = 0 unless defined $Default;
@@ -1196,7 +1201,8 @@ sub DoEdit {
   }
   # For templates
   print $q->checkbox(-name=>'template', -checked=>$template, -value=>'1',
-    -label=>'Is this page a template?');
+    -label=>'Is this page a template?',
+    -title=>'Check this to save this page as a template');
 
   if($canedit) {
     # Set a lock
@@ -1231,7 +1237,7 @@ sub DoEdit {
 }
 
 sub SetLock {
-  # Sets a page log
+  # Sets a page lock
   if(-f "$TempDir/$Page.lock" and ((stat("$TempDir/$Page.lock"))[9] <= ($TimeStamp - $LockExpire))) {
     UnLock();
   }
@@ -1239,7 +1245,7 @@ sub SetLock {
   if(-f "$TempDir/$Page.lock") {
     chomp(my @lock = FileToArray("$TempDir/$Page.lock"));
     my ($u, $p) = ReadCookie();
-    if($lock[0] ne $UserIP and $lock[1] ne $u) {
+    if(($lock[0] ne $UserIP) or ($lock[1] ne $u)) {
       print "<p><span style='color:red'>This file is locked by <strong>".
 	"$lock[0] ($lock[1])</strong> since <strong>".
 	(FriendlyTime($lock[2]))[$TimeZone]."</strong>.</span>";
@@ -1249,7 +1255,11 @@ sub SetLock {
       return 0;
     } else {
       # Let's refresh the lock!
-      return RefreshLock();
+      #return RefreshLock();
+      my $ret = RefreshLock();
+      print "<p><span style='color:red'>Call to RefreshLock() failed.</span>".
+	"</p>" unless $ret;
+      return $ret;
     }
   } else {
     StringToFile("$UserIP\n$UserName\n$TimeStamp", "$TempDir/$Page.lock");
@@ -1822,6 +1832,11 @@ sub DoAdminDashboard {
       Commify(scalar(grep { length($_) and $_ !~ /^#/ } split(/\n/,$content))).
       " rules").
     " for blocking users via IP address.");
+
+  # Do dashboard items
+  foreach (@DashboardItems) {
+    &{$_};
+  }
 }
 
 sub DoAdmin {
@@ -2438,6 +2453,17 @@ sub DoPostingEditing {
       Preview(GetParam('file'));
       $redir = 1;
     } else {
+      # We need to check for locks, first!
+      if(-f "$TempDir/$Page.lock") {
+	chomp(my @lock = FileToArray("$TempDir/$Page.lock"));
+	my ($u, $p) = ReadCookie();
+	if(($lock[0] ne $UserIP) or ($lock[1] ne $u)) {
+	  # Not the right user
+	  ErrorPage(409,"This file is locked by another user. ".
+	    "Please try again.");
+	  exit 1;
+	}
+      }
       if(GetParam('text') =~ m/^#FILE /) {
 	ErrorPage(403,"File uploads can only be done through the upload page.");
 	return;
@@ -2893,6 +2919,7 @@ sub ErrorPage {
     400 => '400 Bad Request',
     403 => '403 Forbidden',
     404 => '404 Not Found',
+    409 => '409 Conflict',
     415 => '415 Unsupported Media Type',
     500 => '500 Internal Server Error',
     501 => '501 Not Implemented',
