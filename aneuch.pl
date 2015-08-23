@@ -44,7 +44,7 @@ $NavBar $ConfFile $UserIP $UserName $VisitorLog $LockExpire %Filec $MTime
 $RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog
 %Commands %AdminActions %AdminList $RemoveOldTemp $ArgList $ShortDir
 @NavBarPages $BlockedList %PostingActions $HTTPStatus $PurgeRC %MaintActions
-$PurgeArchives $SearchPage $SearchBox $TemplateDir $Template $FancyUrls
+$PurgeArchives $SearchPage $SearchBox $ThemeDir $Theme $FancyUrls
 %QuestionAnswer $BannedContent %Param %SpecialPages $SurgeProtectionTime
 $SurgeProtectionCount @PostInitSubs $EditorLicenseText $AdminText $RandomText
 $CountPageVisits $PageVisitFile $q $Hostname @RawHandlers $UploadsAllowed
@@ -98,7 +98,7 @@ sub InitVars {
   $RemoveOldTemp = 60*60*24*7 unless $RemoveOldTemp; # > 7 days
   $PurgeRC = 60*60*24*7 unless $PurgeRC;	# > 7 days
   $PurgeArchives = -1 unless $PurgeArchives;	# Default to keep all!
-  $Template = "" unless $Template;		# No theme by default
+  $Theme = "" unless $Theme;		# No theme by default
   $FancyUrls = 1 unless defined $FancyUrls;	# Use fancy urls w/.htaccess
   # New page and new comment default text
   $NewPage = 'It appears that there is nothing here.' unless $NewPage;
@@ -313,6 +313,13 @@ sub InitVars {
   RegAdminPage('robotstxt', "Modify your robots.txt file", \&DoAdminRobotsTxt);
   #RegAdminPage('getbannedcontentfile', '', \&DoAdminGetBannedContentFile);
   RegAdminPage('templates', "List template pages", \&DoAdminListTemplates);
+  RegAdminPage('plugins', "Plugin manager", \&DoAdminPlugins);
+  RegAdminPage('deleted', "List pending deleted pages", \&DoAdminDeleted);
+
+  # Dashboard items
+  RegDashboardItem(\&DashboardDatabase);
+  RegDashboardItem(\&DashboardBannedContent);
+  RegDashboardItem(\&DashboardBannedUsers);
 
   # Register POSTing actions
   RegPostAction('login', \&DoPostingLogin);		# Login
@@ -333,7 +340,7 @@ sub InitVars {
   # Is robots.txt? Let's send it.
   if($Page eq "robots.txt") { SetParam('do','robotstxt'); }
 
-  # Maintenance actions FIXME: No fancy Reg* sub (yet)
+  # Maintenance actions
   RegMaintAction('purgerc', \&DoMaintPurgeRC);
   RegMaintAction('purgeoldr', \&DoMaintPurgeOldRevs);
   RegMaintAction('purgetemp', \&DoMaintPurgeTemp);
@@ -360,7 +367,7 @@ sub DoPostInit {
 }
 
 sub DoHeader {
-  if(!$Template or !-d "$TemplateDir/$Template") {
+  if(!$Theme or !-d "$ThemeDir/$Theme") {
     print "<!DOCTYPE html>\n".
       '<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">'.
       "<head><title>$PageName - $SiteName</title>\n".
@@ -384,16 +391,16 @@ sub DoHeader {
     }
     print '><span id="top"></span>';
   } else {
-    if(-f "$TemplateDir/$Template/head.pl") {
-      do "$TemplateDir/$Template/head.pl";
-    } elsif(-f "$TemplateDir/$Template/head.html") {
-      print Interpolate(FileToString("$TemplateDir/$Template/head.html"));
+    if(-f "$ThemeDir/$Theme/head.pl") {
+      do "$ThemeDir/$Theme/head.pl";
+    } elsif(-f "$ThemeDir/$Theme/head.html") {
+      print Interpolate(FileToString("$ThemeDir/$Theme/head.html"));
     }
   }
 }
 
 sub DoFooter {
-  if(!$Template or !-d "$TemplateDir/$Template") {
+  if(!$Theme or !-d "$ThemeDir/$Theme") {
     print '<span id="bottom"></span></div> <!-- content -->'.
       '<div class="navigation">'."<ul>";
     # If we want discussion pages
@@ -410,10 +417,10 @@ sub DoFooter {
     print "$MTime</div>$PostFooter</div> <!-- footer --></div> ".
       "<!-- container --></html>";
   } else {
-    if(-f "$TemplateDir/$Template/foot.pl") {
-      do "$TemplateDir/$Template/foot.pl";
-    } elsif(-f "$TemplateDir/$Template/foot.html") {
-      print Interpolate(FileToString("$TemplateDir/$Template/foot.html"));
+    if(-f "$ThemeDir/$Theme/foot.pl") {
+      do "$ThemeDir/$Theme/foot.pl";
+    } elsif(-f "$ThemeDir/$Theme/foot.html") {
+      print Interpolate(FileToString("$ThemeDir/$Theme/foot.html"));
     }
   }
 }
@@ -423,6 +430,8 @@ sub DoCSS {
   #  CSS Customization in the future.
   if(-f "$DataDir/style.css") {
     return FileToString("$DataDir/style.css");
+  } elsif($Theme and -f "$ThemeDir/$Theme/style.css") {
+    return FileToString("$ThemeDir/$Theme/style.css");
   } else {
     my $data_pos = tell DATA;	# Find the position of __DATA__
     chomp(my @CSS = <DATA>);	# Read in __DATA__
@@ -524,7 +533,7 @@ sub Markup {
   my $cont = shift;
   my @contents = split(/\n/, $cont);
 
-  my $ulstep = 0;		# FIXME: not used!?
+  my $ulstep = 0;
   my $olstep = 0;
   my $openul = 0;		# For building <ul>
   my $openol = 0;		# For building <ol>
@@ -937,8 +946,8 @@ sub InitDirs {
   eval { mkdir $PluginDir unless -d $PluginDir; }; push @Messages, $@ if $@;
   $TempDir = "$DataDir/temp";
   eval { mkdir $TempDir unless -d $TempDir; }; push @Messages, $@ if $@;
-  $TemplateDir = "$DataDir/templates";
-  eval { mkdir $TemplateDir unless -d $TemplateDir; }; push @Messages, $@ if $@;
+  $ThemeDir = "$DataDir/themes";
+  eval { mkdir $ThemeDir unless -d $ThemeDir; }; push @Messages, $@ if $@;
   $VisitorLog = "$DataDir/visitors.log";
   $RecentChangesLog = "$DataDir/rc.log";
   $BlockedList = "$DataDir/banned";
@@ -1128,14 +1137,16 @@ sub DoEdit {
   if(-f "$TempDir/$Page.$UserName") {
     %f = ReadDB("$TempDir/$Page.$UserName");
     $revision = $f{revision};
-    chomp($contents = $f{text});
+    #chomp($contents = $f{text});
+    $contents = $f{text};
     $preview = 1;
     $summary = $f{summary};
     $template = $f{template};
     RefreshLock();
   } else {
     %f = GetPage($Page, $revision);
-    chomp($contents = $f{text});
+    #chomp($contents = $f{text});
+    $contents = $f{text};
     if($clear) { $contents = ''; }
     $revision = $f{revision} if defined $f{revision};
     $revision = 0 unless $revision;
@@ -1163,12 +1174,13 @@ sub DoEdit {
   print "</p>";
 
   if(IsSpecialPage($Page)) {
-    print $q->p($q->em("Note: This page is defined as a special page, ".
+    print $q->p($q->span({-style=>'color:red; font-style: italic;'},
+      "Note: This page is defined as a special page, ".
       "and as such its final state may be different from what you see here."));
   }
 
   if($preview) {
-    print "<div class=\"preview\">" . Markup($contents) . "</div>";
+    print $q->div({-class=>'preview'},Markup($contents));
   }
 
   if($canedit) {
@@ -1334,7 +1346,7 @@ sub WritePage {
   }
   my %F;
   # Build file information
-  $F{summary} = GetParam('summary');
+  $F{summary} = GetParam('summary');	# FIXME: This needs to be a var passed!
   $F{summary} =~ s/\r//g; $F{summary} =~ s/\n//g;
   $F{ip} = $UserIP;
   $F{author} = $user;
@@ -1465,7 +1477,7 @@ sub ListAllPages {
 
 sub ListAllFiles {
   my @files;
-  open(FL, "grep -Prli '^text: #FILE ' $PageDir 2>/dev/null |");
+  open(FL, "grep -rli '^text: #FILE ' $PageDir 2>/dev/null |");
   while(<FL>) {
     push @files, $1 if m#^$PageDir/.{1}/(.*)$#;
   }
@@ -1475,12 +1487,22 @@ sub ListAllFiles {
 
 sub ListAllTemplates {
   my @templates;
-  open(FL, "grep -Prli '^template: 1' $PageDir 2>/dev/null |");
+  open(FL, "grep -rli '^template: 1' $PageDir 2>/dev/null |");
   while(<FL>) {
     push @templates, $1 if m#^$PageDir/.{1}/(.*)$#;
   }
   close(FL);
   return @templates;
+}
+
+sub ListDeletedPages {
+  my @list;
+  open(FILES, "grep -rli '^text: DeletedPage' $PageDir 2>/dev/null |");
+  while(<FILES>) {
+    push @list, $1 if m#^$PageDir/.{1}/(.*)$#;
+  }
+  close(FILES);
+  return @list;
 }
 
 sub CountAllRevisions {
@@ -1588,11 +1610,16 @@ sub DoAdminIndex {
   print "</ol></p>";
 }
 
-sub DoAdminReIndex {
-  # Re-index the site
+sub RebuildIndex {
   my @files = ListAllPages();
   StringToFile(join("\n",@files)."\n","$DataDir/pageindex");
-  print "Reindex complete, ".scalar(@files)." pages found and added to index.";
+  return scalar(@files);
+}
+
+sub DoAdminReIndex {
+  # Re-index the site
+  my $files = RebuildIndex();
+  print "Reindex complete, $files pages found and added to index.";
 }
 
 sub DoAdminRemoveLocks {
@@ -1745,9 +1772,8 @@ sub DoAdminCSS {
     } else {
       print "<p>Are you sure you want to restore the default CSS? This cannot".
 	" be undone.</p>";
-      print "<p><a href='$Url?do=admin;page=css;action=restore;".
-	"confirm=yes'>YES</a>&nbsp;&nbsp;<a href='javascript:history.go(-1)".
-	"'>NO</a></p>";
+      print $q->p(AdminLink('css','YES','action=restore','confirm=yes').
+	"&nbsp;&nbsp;".$q->a({-href=>'javascript:history.go(-1)'},"NO"));
     }
   } else {
     my $content = DoCSS();
@@ -1793,10 +1819,110 @@ sub DoAdminRobotsTxt {
   );
 }
 
+sub DoAdminPlugins {
+  # Plugin manager!
+  # Do we have an action and plugin?
+  my $pi = GetParam('plugin');
+  my $act = GetParam('act');
+  if($pi and $act) {
+    if($act eq 'disable' and -f "$PluginDir/$pi") {
+      rename "$PluginDir/$pi", "$PluginDir/$pi.disabled";
+    }
+    if($act eq 'enable' and -f "$PluginDir/$pi.disabled") {
+      rename "$PluginDir/$pi.disabled", "$PluginDir/$pi";
+    }
+    print $q->p("$pi has been ".($act eq 'disable' ? 'disabled' : 'enabled'));
+    print AdminLink('plugins',"Return to plugin manager");
+    return;
+  }
+
+  # Main code
+  my @alist = keys %Plugins;
+  my $active = @alist;
+  my @plist = glob("$PluginDir/*");
+  s/^$PluginDir\/// for @plist;
+  my @dlist = grep(/\.disabled$/,@plist);
+  s/\.disabled$// for (@plist,@dlist);
+  my $total = @plist;
+  print $q->p("You have $total ".($total eq 1 ? 'plugin' : 'plugins').
+    " installed, $active of which ".($active eq 1 ? 'is' : 'are').
+    " active.");
+  #foreach my $p (@plist) {
+  #  print $q->p($q->strong("$p").' '.
+  #    (defined $Plugins{$p} ? '(active)' : '(inactive)'));
+  #}
+  print $q->h3('Active');
+  print "<ul>";
+  foreach (@alist) {
+    print $q->li(AdminLink('plugins',$_,"plugin=$_",'act=disable').
+      ' - '.$Plugins{$_});
+  }
+  print "</ul>";
+  print $q->h3('Disabled');
+  print "<ul>";
+  foreach (@dlist) {
+    print $q->li(AdminLink('plugins',$_,"plugin=$_",'act=enable'));
+  }
+  print "</ul>";
+}
+
+sub DoAdminDeleted {
+  my @deleted = ListDeletedPages();
+  print $q->p("Here is a list of pages that are pending delete:");
+  print "<ul>";
+  foreach my $item (@deleted) {
+    my %f = GetPage($item);
+    print $q->li($q->a({-href=>$Url.$item}, $item).
+      " to be deleted after ".
+      (FriendlyTime($f{ts} + $PurgeDeletedPage))[$TimeZone]);
+  }
+  print "</ul>";
+}
+
+sub DashboardDatabase {
+  print $q->h3('Database Info');
+  print "<p>There are currently ".
+    AdminLink('index',Commify(scalar(ListAllPages()))." pages").
+    " and ".Commify(CountAllRevisions()).
+    " page revisions stored in the database.";
+  if($CountPageVisits) {
+    print " There are ".AdminLink('visitors',Commify(GetTotalViewCount()).
+      " total page views").".";
+  }
+  print "</p>";
+  print $q->p('There are '.
+    AdminLink('files',Commify(scalar(ListAllFiles()))." uploaded files").
+    ' and '.AdminLink('templates',
+      Commify(scalar(ListAllTemplates()))." templates").".");
+}
+
+sub DashboardBannedContent {
+  print $q->h3('Banned Content');
+  my $content = FileToString($BannedContent);
+  print $q->p("Your site is protected against certain types of content by ".
+    AdminLink('bannedcontent',
+      Commify(scalar(grep { length($_) and $_ !~ /^#/ } split(/\n/,$content))).
+    " rules").".");
+}
+
+sub DashboardBannedUsers {
+  print $q->h3('Banned Users');
+  my $content = FileToString($BlockedList);
+  print $q->p("You have entered ".
+    AdminLink('block',
+      Commify(scalar(grep { length($_) and $_ !~ /^#/ } split(/\n/,$content))).
+      " rules").
+    " for blocking users via IP address.");
+}
+
 sub DoAdminDashboard {
   print $q->h2('Dashboard');
+  my $active = keys %Plugins;
   print $q->p('This is Aneuch, '.
-    AdminLink('version',"version $VERSION (build $VERSIONID)").'.');
+    AdminLink('version',"version $VERSION (build $VERSIONID)").
+    " with ".
+    AdminLink('plugins',"$active loaded ".
+      ($active eq 1 ? 'plugin' : 'plugins')).'.');
   my ($u,$p) = ReadCookie();
   print "<p>You are currently authenticated as '$u' and ".
     ((IsAdmin()) ? 'are' : 'are not').
@@ -1804,34 +1930,8 @@ sub DoAdminDashboard {
   print Form('login','post',
     $q->hidden(-name=>'user', -value=>$u).
     $q->hidden(-name=>'pass', -value=>'').
-    $q->submit(-value=>'Log out'));
-  print $q->h3('Database Info');
-  print "<p>There are currently ".
-    AdminLink('index',Commify(scalar(ListAllPages()))." pages").
-    " and ".Commify(CountAllRevisions()).
-    " page revisions stored in the database.";
-  if($CountPageVisits) {
-    print " There are ".Commify(GetTotalViewCount()).
-      " total page views.";
-  }
-  print "</p>";
-  print $q->p('There are '.
-    AdminLink('files',Commify(scalar(ListAllFiles()))." uploaded files").
-    ' and '.AdminLink('templates',
-      Commify(scalar(ListAllTemplates()))." templates").".");
-  print $q->h3('Banned Content');
-  my $content = FileToString($BannedContent);
-  print $q->p("Your site is protected against certain types of content by ".
-    AdminLink('bannedcontent',
-      Commify(scalar(grep { length($_) and $_ !~ /^#/ } split(/\n/,$content))).
-    " rules").".");
-  print $q->h3('Banned Users');
-  $content = FileToString($BlockedList);
-  print $q->p("You have entered ".
-    AdminLink('block',
-      Commify(scalar(grep { length($_) and $_ !~ /^#/ } split(/\n/,$content))).
-      " rules").
-    " for blocking users via IP address.");
+    $q->submit(-value=>'Log out')
+  );
 
   # Do dashboard items
   foreach (@DashboardItems) {
@@ -2123,7 +2223,7 @@ sub DoLinkedPages {
   $searchparam =~ s/_/[ _]/g;
   $Param{'search'} = '\[\['.$searchparam.'[|\]]';
   print "<h2>Pages that link to '<a href=\"${ShortUrl}$Page\">$Page</a>'</h2>";
-  chomp(my @files = `grep -Prli '$Param{'search'}' $PageDir`);
+  chomp(my @files = `grep -Prl '$Param{'search'}' $PageDir`);
   s/$PageDir\/.{1}\/// for @files;
   print "<ul>";
   foreach (@files) {
@@ -2193,7 +2293,7 @@ sub DoSearch {
   # Get the list of files whos file names match
   @files = grep(/.*?($search|$altsearch).*?/i,ListAllPages());
   # Search the innards of the files
-  open(FILES, "grep -Prli '($search|$altsearch)' $PageDir 2>/dev/null |");
+  open(FILES, "grep -Erli '($search|$altsearch)' $PageDir 2>/dev/null |");
   while(<FILES>) {
     push @files, $1 if m#^$PageDir/.{1}/(.*)$#;
   }
@@ -2461,7 +2561,7 @@ sub DoPostingEditing {
 	  # Not the right user
 	  ErrorPage(409,"This file is locked by another user. ".
 	    "Please try again.");
-	  exit 1;
+	  return;
 	}
       }
       if(GetParam('text') =~ m/^#FILE /) {
@@ -2571,7 +2671,7 @@ sub DoPostingUpload {
 sub DoPosting {
   SetParam('do','posting');
   my $action = GetParam('doing');
-  my $file = GetParam('file');
+  my $file = GetParam('file', '<'.GetParam('doing','not specified').'>');
   # Remove all slashes from file name (if any)
   $file =~ s!/!!g;
   # Remove any leading periods
@@ -2679,11 +2779,12 @@ sub DoMaintDeletePages {
   my @files;
   my @archives;
   my $RemoveTime = $TimeStamp - $PurgeDeletedPage;
-  open(FILES, "grep -Prli '^text: DeletedPage' $PageDir 2>/dev/null |");
-  while(<FILES>) {
-    push @list, $1 if m#^$PageDir/.{1}/(.*)$#;
-  }
-  close(FILES);
+  #open(FILES, "grep -rli '^text: DeletedPage' $PageDir 2>/dev/null |");
+  #while(<FILES>) {
+  #  push @list, $1 if m#^$PageDir/.{1}/(.*)$#;
+  #}
+  #close(FILES);
+  @list = ListDeletedPages();
   # Go through @list, see what is over $PurgeDeletedPage
   foreach my $listitem (@list) {
     my %f = GetPage($listitem);
@@ -2706,7 +2807,7 @@ sub DoMaintDeletePages {
 	StringToFile($rcout, $RecentChangesLog);
       }
     }
-    DoAdminReIndex();	# Removes the deleted page from the page index
+    RebuildIndex();	# Removes the deleted page from the page index
   }
 }
 
@@ -3013,7 +3114,7 @@ sub DoRequest {
   }
 
   # Raw handler?
-  if(IsRawHandler(GetParam('do',''))) {
+  if(IsRawHandler(GetParam('do','')) and $Commands{GetParam('do')}) {
     &{$Commands{GetParam('do')}};
     return;
   }
@@ -3070,6 +3171,10 @@ sub DoRequest {
 	print $q->p({-style=>"font-style: italic; color: red;"},
 	  "This page is a template, and likely doesn't contain any useful ".
 	  "information.");
+      }
+      if($Filec{text} =~ m/^DeletedPage\n/) {
+	print $q->p($q->em("This page is scheduled to be deleted after ".
+	  $q->strong((FriendlyTime($Filec{ts} + $PurgeDeletedPage))[$TimeZone])));
       }
       if($rev and PageExists($Page, $rev)) {
 	print $q->p({-style=>"font-weight: bold;"}, 
