@@ -154,7 +154,7 @@ sub InitVars {
     $Page = GetParam('page','');
   }
   $Page =~ s/^\/{1,}//;
-  $Page = $q->QuoteHTML($Page);
+  $Page = QuoteHTML($Page);
   if($Page and !GetParam('page')) {
     SetParam('page', $Page);
   }
