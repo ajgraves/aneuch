@@ -35,21 +35,24 @@ use CGI;		# Use CGI.pm
 use CGI::Carp qw(fatalsToBrowser);
 local $| = 1;		# Do not buffer output
 # Some variables
-use vars qw($DataDir $SiteName $Page $ShortPage @Passwords $PageDir $ArchiveDir
-$ShortUrl $SiteMode $ScriptName $ShortScriptName $Header $Footer $PluginDir 
-$Url $DiscussText $DiscussPrefix $DiscussLink $DefaultPage $CookieName 
-$PageName $TempDir @Messages $command $contents %Plugins $TimeStamp
-$PostFooter $TimeZone $VERSION $EditText $RevisionsText $NewPage $NewComment
-$NavBar $ConfFile $UserIP $UserName $VisitorLog $LockExpire %Filec $MTime
-$RecentChangesLog $Debug $DebugMessages $PageRevision $MaxVisitorLog
-%Commands %AdminActions %AdminList $RemoveOldTemp $ArgList $ShortDir
-@NavBarPages $BlockedList %PostingActions $HTTPStatus $PurgeRC %MaintActions
-$PurgeArchives $SearchPage $SearchBox $ThemeDir $Theme $FancyUrls
-%QuestionAnswer $BannedContent %Param %SpecialPages $SurgeProtectionTime
-$SurgeProtectionCount @PostInitSubs $EditorLicenseText $AdminText $RandomText
-$CountPageVisits $PageVisitFile $q $Hostname @RawHandlers $UploadsAllowed
-@UploadTypes %ShortCodes %HTTPHeader %CommandsDisplay $PurgeDeletedPage
-$VERSIONID @DashboardItems);
+our ($DataDir, $SiteName, $Page, $ShortPage, @Passwords, $PageDir, $ArchiveDir,
+     $ShortUrl, $SiteMode, $ScriptName, $ShortScriptName, $Header, $Footer,
+     $PluginDir, $Url, $DiscussText, $DiscussPrefix, $DiscussLink,
+     $DefaultPage, $CookieName, $PageName, $TempDir, @Messages, $command,
+     $contents, %Plugins, $TimeStamp, $PostFooter, $TimeZone, $VERSION,
+     $EditText, $RevisionsText, $NewPage, $NewComment, $NavBar, $ConfFile,
+     $UserIP, $UserName, $VisitorLog, $LockExpire, %Filec, $MTime, 
+     $RecentChangesLog, $Debug, $DebugMessages, $PageRevision, $MaxVisitorLog,
+     %Commands, %AdminActions, %AdminList, $RemoveOldTemp, $ArgList, $ShortDir,
+     @NavBarPages, $BlockedList, %PostingActions, $HTTPStatus, $PurgeRC,
+     %MaintActions, $PurgeArchives, $SearchPage, $SearchBox, $ThemeDir, $Theme,
+     $FancyUrls, %QuestionAnswer, $BannedContent, %Param, %SpecialPages,
+     $SurgeProtectionTime, $SurgeProtectionCount, @PostInitSubs,
+     $EditorLicenseText, $AdminText, $RandomText, $CountPageVisits,
+     $PageVisitFile, $q, $Hostname, @RawHandlers, $UploadsAllowed, 
+     @UploadTypes, %ShortCodes, %HTTPHeader, %CommandsDisplay,
+     $PurgeDeletedPage, $VERSIONID, @DashboardItems);
+
 my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
@@ -151,6 +154,7 @@ sub InitVars {
     $Page = GetParam('page','');
   }
   $Page =~ s/^\/{1,}//;
+  $Page = $q->QuoteHTML($Page);
   if($Page and !GetParam('page')) {
     SetParam('page', $Page);
   }
@@ -898,7 +902,8 @@ sub RegDashboardItem {
 sub GetParam {
   my ($ParamToGet, $Default) = @_;
   $Default = 0 unless defined $Default;
-  my $result = $q->param($ParamToGet);
+  my $result = QuoteHTML($q->param($ParamToGet));
+  # NOTE: You now have to unquote anything that should have HTML
   return (defined $result) ? $result : $Default;
 }
 
@@ -1075,18 +1080,14 @@ sub LogRecent {
     $time = strftime "%H%M%S", localtime($TimeStamp);
   }
   if(-f "$RecentChangesLog") {
-    open(RCL,"<$RecentChangesLog") or push @Messages, "LogRecent: Unable to read from $RecentChangesLog: $!";
-    @rc = <RCL>;
-    close(RCL);
+    @rc = FileToArray($RecentChangesLog);
   }
   # Remove any old entry...
   @rc = grep(!/^$day(\d{6})\t$file\t/,@rc);
   # Now update...
   push @rc, "$day$time\t$file\t$un\t$mess\t$TimeStamp\n";
   # Now write it back out...
-  open(RCL,">$RecentChangesLog") or push @Messages, "LogRecent: Unable to write to $RecentChangesLog: $!";
-  print RCL @rc;
-  close(RCL);
+  StringToFile(join("\n",@rc), $RecentChangesLog);
   Notify($file, $un, $mess);
 }
 
@@ -1297,9 +1298,10 @@ sub Index {
   ($pg) = @_ if @_ >= 1;
   my @pagelist = FileToArray("$DataDir/pageindex");
   if(!grep(/^$pg$/,@pagelist)) {
-    open(INDEX,">>$DataDir/pageindex") or push @Messages, "Index: Unable to open pageindex for append: $!";
-    print INDEX "$pg\n";
-    close(INDEX);
+    open my($INDEX), '>>', "$DataDir/pageindex" or push @Messages,
+      "Index: Unable to open pageindex for append: $!";
+    print $INDEX "$pg\n";
+    close($INDEX);
   }
 }
 
@@ -1328,6 +1330,8 @@ sub WritePage {
   # If $archive doesn't exist, we'd better create it...
   if(! -d "$PageDir/$archive") { mkdir "$PageDir/$archive"; }
   chomp($content);
+  # Unquote HTML
+  $content = UnquoteHTML($content);
   # Catch any signatures!
   if($content !~ m/^#FILE /) {
     $content =~ s/~{4}/GetSignature($UserName)/eg;
@@ -1370,15 +1374,16 @@ sub WriteDB {
   my $filename = shift;
   my %filedata = %{shift()};
   $filename =~ m/^(.*)$/; $filename = $1;
-  open(FILE, ">$filename") or push @Messages, "WriteDB: Unable to write to $filename: $!";
-  flock(FILE, LOCK_EX);		# Lock, exclusive
-  seek(FILE, 0, SEEK_SET);	# Go to beginning of file...
+  open my($FILE), '>', $filename or push @Messages,
+    "WriteDB: Unable to write to $filename: $!";
+  flock($FILE, LOCK_EX);	# Lock, exclusive
+  seek($FILE, 0, SEEK_SET);	# Go to beginning of file...
   foreach my $key (sort keys %filedata) {
     $filedata{$key} =~ s/\n/\n\t/g;
     $filedata{$key} =~ s/\r//g;
-    print FILE "$key: ".$filedata{$key}."\n";
+    print $FILE "$key: ".$filedata{$key}."\n";
   }
-  close(FILE);
+  close($FILE);
 }
 
 sub ReadDB {
@@ -1388,9 +1393,7 @@ sub ReadDB {
   my %F;
   my $currentkey;	# Current key of the hash that we're reading in
   if(-f "$file") { # If the file exists
-    open(FH,"$file") or push @Messages, "ReadDB: Unable to open file $file: $!"; # Push error
-    chomp(@return = <FH>);	# Remove \n
-    close(FH);
+    @return = FileToArray($file);
     s/\r//g for @return;
     foreach my $r (@return) {
       if($r =~ m/^\t/) {
@@ -1432,6 +1435,7 @@ sub GetDiscussionSeparator {
 sub AppendPage {
   my ($file, $content, $user, $url) = @_;
   DoArchive($file);				# Keep history
+  $content = UnquoteHTML($content);
   $content =~ s/\r//g;
   if(!$user) { $user = $UserIP; }
   my %F; my %T;
@@ -1477,31 +1481,31 @@ sub ListAllPages {
 
 sub ListAllFiles {
   my @files;
-  open(FL, "grep -rli '^text: #FILE ' $PageDir 2>/dev/null |");
-  while(<FL>) {
+  open my($FL), "grep -rli '^text: #FILE ' $PageDir 2>/dev/null |";
+  while(<$FL>) {
     push @files, $1 if m#^$PageDir/.{1}/(.*)$#;
   }
-  close(FL);
+  close($FL);
   return @files;
 }
 
 sub ListAllTemplates {
   my @templates;
-  open(FL, "grep -rli '^template: 1' $PageDir 2>/dev/null |");
-  while(<FL>) {
+  open my($FL), "grep -rli '^template: 1' $PageDir 2>/dev/null |";
+  while(<$FL>) {
     push @templates, $1 if m#^$PageDir/.{1}/(.*)$#;
   }
-  close(FL);
+  close($FL);
   return @templates;
 }
 
 sub ListDeletedPages {
   my @list;
-  open(FILES, "grep -rli '^text: DeletedPage' $PageDir 2>/dev/null |");
-  while(<FILES>) {
+  open my($FILES), "grep -rli '^text: DeletedPage' $PageDir 2>/dev/null |";
+  while(<$FILES>) {
     push @list, $1 if m#^$PageDir/.{1}/(.*)$#;
   }
-  close(FILES);
+  close($FILES);
   return @list;
 }
 
@@ -1541,7 +1545,7 @@ sub CommandDisplay {
   my ($command, $p, $r) = @_;
   $p = "<strong>".QuoteHTML($p)."</strong>";
   if(!defined $CommandsDisplay{$command}) {
-    return "was doing &quot;$command&quot; on page $p";
+    return "was doing &quot;".QuoteHTML($command)."&quot; on page $p";
   }
   my $ret = $CommandsDisplay{$command};
   $ret =~ s/\%s/$p/;
@@ -1698,18 +1702,6 @@ sub DoAdminListVisitors {
 }
 
 sub DoAdminLock {
-  #if(!-f "$DataDir/lock") {
-  #  open(LOCKFILE,">$DataDir/lock") or push @Messages, "DoAdminLock: Unable to write to lock: $!";
-  #  print LOCKFILE "";
-  #  close(LOCKFILE);
-  #  print "Site is locked.";
-  #} else {
-  #  if(unlink "$DataDir/lock") {
-  #    print "Site has been unlocked.";
-  #  } else {
-  #    print "Error while attempting to unlock the site: $!";
-  #  }
-  #}
   if(GetParam('confirm','no') eq "yes") {
     if(-f "$DataDir/lock") {
       if(unlink "$DataDir/lock") {
@@ -2170,10 +2162,7 @@ sub DoRecentChanges {
   my $curdate;
   my $tz;
   my $openul=0;
-  open(RCF,"<$RecentChangesLog") or push @Messages, "DoRecentChanges: Unable to read $RecentChangesLog: $!";
-  @rc = <RCF>;
-  close(RCF);
-  chomp(@rc);
+  @rc = FileToArray($RecentChangesLog);
   if($TimeZone == 0) {
     $tz = "UTC";
   } else {
@@ -2293,14 +2282,14 @@ sub DoSearch {
   # Get the list of files whos file names match
   @files = grep(/.*?($search|$altsearch).*?/i,ListAllPages());
   # Search the innards of the files
-  open(FILES, "grep -Erli '($search|$altsearch)' $PageDir 2>/dev/null |");
-  while(<FILES>) {
+  open my($FILES), "grep -Erli '($search|$altsearch)' $PageDir 2>/dev/null |";
+  while(<$FILES>) {
     push @files, $1 if m#^$PageDir/.{1}/(.*)$#;
   }
   # Sort by last modification time
   # NOTE: This is not going to work, seeing as how we strip the directory info
   s#^$PageDir/.*?/## for @files;
-  close(FILES);
+  close($FILES);
   print "<p>Search results for &quot;$search&quot;</p>";
   foreach my $file (@files) {
     my $fn = $file;
@@ -2394,9 +2383,14 @@ sub QuoteHTML {
   # Escape html characters
   my $html = shift;
   #$html =~ s/&/&amp;/g;	# Found on the hard way, this must go first.
-  $html =~ s/</&lt;/g;
-  $html =~ s/>/&gt;/g;
-  return $html;
+  #$html =~ s/</&lt;/g;
+  #$html =~ s/>/&gt;/g;
+  return $q->escapeHTML($html);
+}
+
+sub UnquoteHTML {
+  my $text = shift;
+  return $q->unescapeHTML($text);
 }
 
 sub DoHistory {
@@ -2677,6 +2671,8 @@ sub DoPosting {
   # Remove any leading periods
   $file =~ s/^\.+//g;
   $Page = $file;
+  # Now set the param to its sanitized value
+  SetParam('file',$file);
   if($action and $PostingActions{$action}) {	# Does it exist?
     &{$PostingActions{$action}};		# Run it
   }
@@ -2692,11 +2688,11 @@ sub DoVisit {
   if($MaxVisitorLog > 0) {
     my $logentry = "$UserIP\t$TimeStamp\t$mypage\t".GetParam('do','').
       "\t$PageRevision\t$HTTPStatus\t$UserName";
-    open(LOGFILE,">>$VisitorLog");
-    flock(LOGFILE, LOCK_EX);		# Lock, exclusive
-    seek(LOGFILE, 0, SEEK_END);		# In case data was appeded after lock
-    print LOGFILE "$logentry\n";
-    close(LOGFILE);			# Lock is removed upon close
+    open my($LOGFILE), '>>', $VisitorLog;
+    flock($LOGFILE, LOCK_EX);		# Lock, exclusive
+    seek($LOGFILE, 0, SEEK_END);	# In case data was appeded after lock
+    print $LOGFILE "$logentry\n";
+    close($LOGFILE);			# Lock is removed upon close
   }
   if($CountPageVisits and PageExists($Page) and !GetParam('do',0)) {
     my %f = ReadDB($PageVisitFile);
@@ -2761,15 +2757,15 @@ sub DoMaintTrimVisit {
   # Open file and lock it...
   chomp(my @lf = FileToArray($VisitorLog));	# Read in
   if(scalar @lf > $MaxVisitorLog) {
-    open(LOGFILE,">$VisitorLog") or return;	# Return if can't open
-    flock(LOGFILE,LOCK_EX) or return;	# Exclusive lock or return
-    seek(LOGFILE, 0, SEEK_SET);		# Beginning
+    open my($LOGFILE), '>', $VisitorLog or return;	# Return if can't open
+    flock($LOGFILE,LOCK_EX) or return;	# Exclusive lock or return
+    seek($LOGFILE, 0, SEEK_SET);	# Beginning
     @lf = reverse(@lf);
     my @new = @lf[0 .. ($MaxVisitorLog - 1)];
     @lf = reverse(@new);
-    seek(LOGFILE, 0, SEEK_SET);		# Return to the beginning
-    print LOGFILE "" . join("\n", @lf) . "\n";
-    close(LOGFILE);
+    seek($LOGFILE, 0, SEEK_SET);	# Return to the beginning
+    print $LOGFILE "" . join("\n", @lf) . "\n";
+    close($LOGFILE);
   }
 }
 
@@ -2779,11 +2775,6 @@ sub DoMaintDeletePages {
   my @files;
   my @archives;
   my $RemoveTime = $TimeStamp - $PurgeDeletedPage;
-  #open(FILES, "grep -rli '^text: DeletedPage' $PageDir 2>/dev/null |");
-  #while(<FILES>) {
-  #  push @list, $1 if m#^$PageDir/.{1}/(.*)$#;
-  #}
-  #close(FILES);
   @list = ListDeletedPages();
   # Go through @list, see what is over $PurgeDeletedPage
   foreach my $listitem (@list) {
@@ -2823,11 +2814,12 @@ sub StringToFile {
   if($file =~ /^([-\@\w.\/]+)$/) {
     $file = $1;
   } else { die "StringToFile: Bad data in '$file'"; }
-  open(FILE,">$file") or push @Messages, "StringToFile: Can't write to $file: $!";
-  flock(FILE,LOCK_EX);		# Exclusive lock
-  seek(FILE, 0, SEEK_SET);	# Beginning
-  print FILE $string;
-  close(FILE);
+  open my($FILE),'>', $file or push @Messages,
+    "StringToFile: Can't write to $file: $!";
+  flock($FILE,LOCK_EX);		# Exclusive lock
+  seek($FILE, 0, SEEK_SET);	# Beginning
+  print $FILE $string;
+  close($FILE);
 }
 
 sub AppendStringToFile {
@@ -2846,9 +2838,10 @@ sub FileToString {
 sub FileToArray {
   my $file = shift;
   my @return;
-  open(FILE,"<$file") or push @Messages, "FileToArray: Can't read from $file: $!";
-  chomp(@return = <FILE>);
-  close(FILE);
+  open my($FILE), '<', $file or push @Messages,
+    "FileToArray: Can't read from $file: $!";
+  chomp(@return = <$FILE>);
+  close($FILE);
   s/\r//g for @return;
   return @return;
 }
