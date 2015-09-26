@@ -2504,7 +2504,7 @@ sub Preview {
   my $tempfile = $Page.".".$UserName;
   # Save contents to temp file
   $F{revision} = GetParam('revision');
-  $F{text} = GetParam('text');
+  $F{text} = UnquoteHTML(GetParam('text'));
   $F{summary} = GetParam('summary');
   $F{template} = GetParam('template');
   WriteDB("$TempDir/$tempfile", \%F);
