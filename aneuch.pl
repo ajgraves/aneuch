@@ -1350,7 +1350,7 @@ sub WritePage {
   }
   my %F;
   # Build file information
-  $F{summary} = GetParam('summary');	# FIXME: This needs to be a var passed!
+  $F{summary} = UnquoteHTML(GetParam('summary')); # FIXME: This needs to be a var passed!
   $F{summary} =~ s/\r//g; $F{summary} =~ s/\n//g;
   $F{ip} = $UserIP;
   $F{author} = $user;
@@ -1366,7 +1366,7 @@ sub WritePage {
   WriteDB("$PageDir/$archive/$file", \%F);
   UnLock($file);
   Index($file);
-  LogRecent($file,$user,GetParam('summary'));
+  LogRecent($file,$user,UnquoteHTML(GetParam('summary')));
 }
 
 sub WriteDB {
@@ -2505,7 +2505,7 @@ sub Preview {
   # Save contents to temp file
   $F{revision} = GetParam('revision');
   $F{text} = UnquoteHTML(GetParam('text'));
-  $F{summary} = GetParam('summary');
+  $F{summary} = UnquoteHTML(GetParam('summary'));
   $F{template} = GetParam('template');
   WriteDB("$TempDir/$tempfile", \%F);
 }
