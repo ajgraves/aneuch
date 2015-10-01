@@ -451,15 +451,17 @@ sub MarkupBuildLink {
   my $href;
   my $text;
   my $url = $Url; $url =~ s/\/$//;
+  my $same = 0;
   if($data =~ m/\|/) {        # Seperate text
     ($href,$text) = split(/\|/, $data);
   } else {                    # No seperate text
     $href = $data; $text = $data;
+    $same = 1;
   }
   if($text =~ /#/ and $text !~ /^#/) {
-    $text = (split(/#/,$text))[0];
+    $text = (split(/#/,$text))[0] if $same;
   } elsif($text =~ /^#/) {
-    $text =~ s/^#+//;
+    $text =~ s/^#+// if $same;
   }
   if(($href =~ m/^htt(p|ps):/) and ($href !~ m/^$url/)) { # External link!
     $return = $q->a({-class=>'external',-rel=>'nofollow',
@@ -2265,7 +2267,7 @@ sub DoSearch {
 
   # First, get a list of all files...
   my @files;
-  my $search = GetParam('search','');
+  my $search = UnquoteHTML(GetParam('search',''));
   if($search eq '') {
     print "<p>What in the world are you searching for!?</p>";
     return;
@@ -2339,11 +2341,12 @@ sub DoSearch {
 
 sub SearchForm {
   my $ret;
+  my $search = UnquoteHTML(GetParam('search',0));
   $ret = "<form class='searchform' action='$Url' method='get'>".
     "<input type='hidden' name='do' value='search' />".
     "<input type='text' name='search' size='40' placeholder='Search' ";
-  if(GetParam('search')) {
-    $ret .= "value='".GetParam('search')."' ";
+  if($search) {
+    $ret .= "value='$search' ";
   }
   $ret .= "/> <input type='submit' value='Search' /></form>";
   return $ret;
@@ -2382,10 +2385,10 @@ sub HMS {
 sub QuoteHTML {
   # Escape html characters
   my $html = shift;
-  #$html =~ s/&/&amp;/g;	# Found on the hard way, this must go first.
-  #$html =~ s/</&lt;/g;
-  #$html =~ s/>/&gt;/g;
-  return $q->escapeHTML($html);
+  $html =~ s/&/&amp;/g;	# Found on the hard way, this must go first.
+  $html =~ s/</&lt;/g;
+  $html =~ s/>/&gt;/g;
+  return $html; #$q->escapeHTML($html);
 }
 
 sub UnquoteHTML {
