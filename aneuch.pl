@@ -83,7 +83,6 @@ sub InitScript {
 sub InitVars {
   # Safe path
   $ENV{'PATH'} = '/usr/local/bin:/usr/pkg/bin:/usr/bin:/bin';
-  # We must be the first entry in Plugins
   # Define settings
   $DataDir = '/tmp/aneuch' unless $DataDir;	# Location of docs
   $DefaultPage = 'HomePage' unless $DefaultPage; # Default page
@@ -103,8 +102,14 @@ sub InitVars {
   $PurgeArchives = -1 unless $PurgeArchives;	# Default to keep all!
   $Theme = "" unless $Theme;		# No theme by default
   $FancyUrls = 1 unless defined $FancyUrls;	# Use fancy urls w/.htaccess
-  # New page and new comment default text
-  $NewPage = 'It appears that there is nothing here.' unless $NewPage;
+  # If $FancyUrls, remove $ShortScriptName from $ShortUrl
+  if(($FancyUrls) and ($ShortUrl =~ m/$ShortScriptName/)) {
+    $ShortUrl =~ s/$ShortScriptName//;
+    $Url =~ s/$ShortScriptName//;
+  } else {
+    $ShortUrl .= "/";
+    $Url .= "/";
+  }
   $NewComment = 'Add your comment here.' unless $NewComment;
   # $SurgeProtectionTime is the number of seconds in the past to check hits
   $SurgeProtectionTime = 20 unless defined $SurgeProtectionTime;
@@ -117,14 +122,6 @@ sub InitVars {
   @UploadTypes = qw(image/gif image/png image/jpeg) unless defined @UploadTypes;
   # Blog pattern
   $PurgeDeletedPage = 60*60*24*14 unless $PurgeDeletedPage; # > 2 weeks
-  # If $FancyUrls, remove $ShortScriptName from $ShortUrl
-  if(($FancyUrls) and ($ShortUrl =~ m/$ShortScriptName/)) {
-    $ShortUrl =~ s/$ShortScriptName//;
-    $Url =~ s/$ShortScriptName//;
-  } else {
-    $ShortUrl .= "/";
-    $Url .= "/";
-  }
 
   # Some cleanup
   #  Remove trailing slash from $DataDir, if it exists
@@ -153,8 +150,13 @@ sub InitVars {
   if(GetParam('page') and !$Page) {
     $Page = GetParam('page','');
   }
-  $Page =~ s/^\/{1,}//;
-  $Page = QuoteHTML($Page);
+  #$Page =~ s/^\/{1,}//;
+  #$Page = QuoteHTML($Page);
+  if($Page ne SanitizeFileName($Page)) {
+    $Page = SanitizeFileName($Page);
+    ReDirect($Url.$Page);
+    exit 0;
+  }
   if($Page and !GetParam('page')) {
     SetParam('page', $Page);
   }
@@ -191,6 +193,9 @@ sub InitVars {
 
   $ShortDir = substr($Page,0,1);	# Get first letter
   $ShortDir =~ tr/[a-z]/[A-Z]/;		# Capitalize it
+
+  # New page and new comment default text
+  $NewPage = "This page doesn't exist." unless $NewPage;
 
   # Discuss, edit links
   if(!GetParam('do') or GetParam('do') eq "revision") {
@@ -335,6 +340,7 @@ sub InitVars {
   RegPostAction('css', \&DoPostingCSS);			# Style/CSS
   RegPostAction('upload', \&DoPostingUpload);		# File uploads
   RegPostAction('robotstxt', \&DoPostingRobotsTxt);	# robots.txt
+  RegPostAction('quickedit', \&DoPostingQuickedit);	# Quick edit
 
   # Register raw handlers
   RegRawHandler('download');
@@ -551,6 +557,7 @@ sub Markup {
   my $pre = 0;			# <pre>
   my $c;
   my $extra;
+  my $blockquote = 0;		# Blockquote
   foreach $line (@contents) {
     # #NOWIKI
     if(!$nowiki and ($line =~ m/^#NOWIKI$/ or $line =~ m/^\{{3}$/)) {
@@ -572,34 +579,50 @@ sub Markup {
 
     $line = QuoteHTML($line);
 
-    # Are we doing lists?
-    # UL
+    # Start blockquote?
+    if(!$blockquote and $line =~ m/^\s{4}/) {
+      $blockquote = 1;
+      push @build, "<blockquote>";
+    }
+
+    # Start UL
     if($line =~ m/^[\s\t]*(\*{1,})[ \t]/) {
       if(!$openul) { $openul=1; }
       $ulstep=length($1);
       if($ulstep > $ulistlevel) {
-	until($ulistlevel == $ulstep) { push @build, "<ul>"; $ulistlevel++; }
+        until($ulistlevel == $ulstep) { push @build, "<ul>"; $ulistlevel++; }
       } elsif($ulstep < $ulistlevel) {
-	until($ulistlevel == $ulstep) { push @build, "</ul>"; $ulistlevel--; }
+        until($ulistlevel == $ulstep) { push @build, "</ul>"; $ulistlevel--; }
       }
     }
-    if(($openul) && ($line !~ m/^[\s\t]*\*{1,}[ \t]/)) {
-      $openul=0; 
-      until($ulistlevel == 0) { push @build, "</ul>"; $ulistlevel--; }
-    }
-    # OL
+
+    # Start OL
     if($line =~ m/^[\s\t]*(#{1,})/) {
       if(!$openol) { $openol=1; }
       $olstep=length($1);
       if($olstep > $olistlevel) {
-	until($olistlevel == $olstep) { push @build, "<ol>"; $olistlevel++; }
+        until($olistlevel == $olstep) { push @build, "<ol>"; $olistlevel++; }
       } elsif($olstep < $olistlevel) {
-	until($olistlevel == $olstep) { push @build, "</ol>"; $olistlevel--; }
+        until($olistlevel == $olstep) { push @build, "</ol>"; $olistlevel--; }
       }
     }
+
+    # End UL
+    if(($openul) && ($line !~ m/^[\s\t]*\*{1,}[ \t]/)) {
+      $openul=0;
+      until($ulistlevel == 0) { push @build, "</ul>"; $ulistlevel--; }
+    }
+
+    # End OL
     if(($openol) && ($line !~ m/^[\s\t]*#{1,}/)) {
       $openol=0;
       until($olistlevel == 0) { push @build, "</ol>"; $olistlevel--; }
+    }
+
+    # End blockquote?
+    if($blockquote and $line !~ m/^\s{4}/) {
+      $blockquote = 0;
+      push @build, "</blockquote>";
     }
 
     # Signature
@@ -670,16 +693,19 @@ sub Markup {
       next;
     }
     next if $nowiki;
-    if($prevblank and ($build[$i] !~ m/^<(h|div)/) and ($build[$i] ne '')) {
+    if($prevblank and ($build[$i] !~ m/^<(h|div|blockquote|ol|ul|li)/) and ($build[$i] ne '')) {
       $prevblank = 0;
-      if(!$openp) {
+      if((!$openp) and ($build[$i] !~ m!^</!)) {
         $build[$i] = "<p>".$build[$i];
         $openp = 1;
       }
     }
-    if(($build[$i] =~ m/^<(h|div)/) || ($build[$i] eq '')) {
+    if(($build[$i] =~ m!^</blockquote>$!) and ($openp)) {
+      $build[$i-1] .= "</p>"; $openp = 0;
+    }
+    if(($build[$i] =~ m/^<(h|div|blockquote|ol|ul|li)/) || ($build[$i] eq '')) {
       $prevblank = 1;
-      if(($i > 0) && ($build[$i-1] !~ m/^<(h|div)/) && ($openp)) {
+      if(($i > 0) and ($build[$i-1] !~ m/^<(h|div)/) and ($openp)) {
         $build[$i-1] .= "</p>"; $openp = 0;
       }
     }
@@ -940,6 +966,18 @@ sub GetTotalViewCount {
     $sum += $f{$_};
   }
   return $sum;
+}
+
+sub SanitizeFileName {
+  my $file = shift;
+  $file = ReplaceSpaces($file);
+  # Remove double dots
+  while($file =~ m/\.\./) {
+    #$file =~ s/\/[^\/]*\/\.\.//;
+    $file =~ s/\.+//;
+  }
+  $file =~ s/[^a-zA-Z0-9._~#-]//g;
+  return $file;
 }
 
 sub InitDirs {
@@ -1888,6 +1926,10 @@ sub DashboardDatabase {
     AdminLink('files',Commify(scalar(ListAllFiles()))." uploaded files").
     ' and '.AdminLink('templates',
       Commify(scalar(ListAllTemplates()))." templates").".");
+  print Form('quickedit', 'post',
+    "Quick edit page: ",
+    $q->textfield(-name=>'thepage', -size=>30), "&nbsp;",
+    $q->submit(-value=>'Create/Edit'));
 }
 
 sub DashboardBannedContent {
@@ -2341,14 +2383,18 @@ sub DoSearch {
 
 sub SearchForm {
   my $ret;
-  my $search = UnquoteHTML(GetParam('search',0));
-  $ret = "<form class='searchform' action='$Url' method='get'>".
-    "<input type='hidden' name='do' value='search' />".
-    "<input type='text' name='search' size='40' placeholder='Search' ";
-  if($search) {
-    $ret .= "value='$search' ";
-  }
-  $ret .= "/> <input type='submit' value='Search' /></form>";
+  my $search = UnquoteHTML(GetParam('search',''));
+  #$ret = "<form class='searchform' action='$Url' method='get'>".
+  #  "<input type='hidden' name='do' value='search' />".
+  #  "<input type='text' name='search' size='40' placeholder='Search' ";
+  #if($search) {
+  #  $ret .= "value='$search' ";
+  #}
+  #$ret .= "/> <input type='submit' value='Search' /></form>";
+  $ret = StartForm('get').$q->hidden(-name=>'do', -value=>'search').
+    $q->textfield(-name=>'search', -size=>'40', -placeholder=>'Search',
+      -value=>$search).
+    $q->submit(-value=>"Search")."</form>";
   return $ret;
 }
 
@@ -2663,6 +2709,11 @@ sub DoPostingUpload {
     WritePage(GetParam('file'), $cont, $UserName);
   }
   ReDirect($Url.GetParam('file'));
+}
+
+sub DoPostingQuickedit {
+  my $page = SanitizeFileName(GetParam('thepage'));
+  ReDirect($Url.$page."?do=edit");
 }
 
 sub DoPosting {
@@ -3158,6 +3209,7 @@ sub DoRequest {
     if(!PageExists($Page)) {
       print $NewPage;
     } else {
+      my $content;
       %Filec = GetPage($Page, $rev);
       if($rev and !PageExists($Page, $rev)) {
 	print $q->p("That revision of ".$q->a({-href=>"$Url$Page"}, $Page).
@@ -3183,10 +3235,18 @@ sub DoRequest {
           ($Filec{filename}) ? $Filec{filename} : $Page, 'View file',
           (GetParam('revision')) ? 'revision='.GetParam('revision') : ''));
       } elsif(exists &Markup) {	# If there's markup defined, do markup
-	print Markup($Filec{text});
+	$content = Markup($Filec{text});
+	#print Markup($Filec{text});
       } else {
-	print join("\n", $Filec{text});
+	$content = join("\n", $Filec{text});
+	#print join("\n", $Filec{text});
       }
+      #if(GetParam('search',0)) {
+	#my $search = GetParam('search');
+	#my $altsearch = ReplaceSpaces($search);
+	#$content =~ s!($search|$altsearch)!<span style="background: yellow;">$1</span>!gsi;
+      #}
+      print $content;
     }
     if($Filec{ts}) {
       $MTime = "Last modified: ".(FriendlyTime($Filec{ts}))[$TimeZone]." by ".
