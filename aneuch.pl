@@ -1899,6 +1899,12 @@ sub DoAdminPlugins {
 }
 
 sub DoAdminDeleted {
+  # Force delete?
+  if(GetParam('force',0)) {
+    my $dp = SanitizePageName(GetParam('force',''));
+    
+  }
+  # Otherwise, list
   my @deleted = ListDeletedPages();
   print $q->p("Here is a list of pages that are pending delete:");
   print "<ul>";
@@ -1906,7 +1912,8 @@ sub DoAdminDeleted {
     my %f = GetPage($item);
     print $q->li($q->a({-href=>$Url.$item}, $item).
       " to be deleted after ".
-      (FriendlyTime($f{ts} + $PurgeDeletedPage))[$TimeZone]);
+      (FriendlyTime($f{ts} + $PurgeDeletedPage))[$TimeZone].
+      " (".AdminLink('deleted',"force delete","force=$item").")");
   }
   print "</ul>";
 }
@@ -2384,17 +2391,11 @@ sub DoSearch {
 sub SearchForm {
   my $ret;
   my $search = UnquoteHTML(GetParam('search',''));
-  #$ret = "<form class='searchform' action='$Url' method='get'>".
-  #  "<input type='hidden' name='do' value='search' />".
-  #  "<input type='text' name='search' size='40' placeholder='Search' ";
-  #if($search) {
-  #  $ret .= "value='$search' ";
-  #}
-  #$ret .= "/> <input type='submit' value='Search' /></form>";
-  $ret = StartForm('get').$q->hidden(-name=>'do', -value=>'search').
+  $ret = StartForm('get').
+    $q->hidden(-name=>'do', -value=>'search', -override=>1).
     $q->textfield(-name=>'search', -size=>'40', -placeholder=>'Search',
       -value=>$search).
-    $q->submit(-value=>"Search")."</form>";
+    $q->submit(-value=>'Search').'</form>';
   return $ret;
 }
 
