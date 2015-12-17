@@ -119,7 +119,7 @@ sub InitVars {
   $CountPageVisits = 1 unless defined $CountPageVisits;
   $UploadsAllowed = 0 unless $UploadsAllowed;	# Do not allow uploads
   # The list of allowable uploads (MIME types)
-  @UploadTypes = qw(image/gif image/png image/jpeg) unless defined @UploadTypes;
+  @UploadTypes = qw(image/gif image/png image/jpeg) unless @UploadTypes;
   # Blog pattern
   $PurgeDeletedPage = 60*60*24*14 unless $PurgeDeletedPage; # > 2 weeks
 
@@ -296,8 +296,10 @@ sub InitVars {
   RegCommand('index', \&DoAdminIndex, 'was viewing the page index');
   # Pages that link here
   RegCommand('links', \&DoLinkedPages, 'was viewing backlinks to %s');
-  # Download/raw display for files
+  # Download for files
   RegCommand('download', \&DoDownload, 'downloaded the file %s');
+  # Raw viewer
+  RegCommand('view', \&DoView, 'viewed the file %s');
   # robots.txt support
   RegCommand('robotstxt', \&DoRobotsTxt, 'was getting %s');
 
@@ -344,6 +346,7 @@ sub InitVars {
 
   # Register raw handlers
   RegRawHandler('download');
+  RegRawHandler('view');
   RegRawHandler('random');
   RegRawHandler('robotstxt');
 
@@ -469,7 +472,16 @@ sub MarkupBuildLink {
   } elsif($text =~ /^#/) {
     $text =~ s/^#+// if $same;
   }
-  if(($href =~ m/^htt(p|ps):/) and ($href !~ m/^$url/)) { # External link!
+  if($href =~ m/^mailto:/i) { # Mailto link
+    # If the test is the same as the href, we'll want to remove the leading
+    #  mailto: portion of the link, so that it's relatively clean output.
+    if($same) {
+      $text =~ s/^mailto://i;
+    }
+    $return = $q->a({-class=>'external',-rel=>'nofollow',
+      -title=>$href,-href=>$href},$text);
+  }
+  elsif(($href =~ m/^htt(p|ps):/i) and ($href !~ m/^$url/i)) { # External link!
     $return = $q->a({-class=>'external',-rel=>'nofollow',
       -title=>'External link: '.$href,-target=>'_blank',-href=>$href},$text);
   } else {			# Internal link!
@@ -510,7 +522,7 @@ sub MarkupImage {
   }
   my $return = '<img src="';
   if(PageExists(ReplaceSpaces($img))) {
-    $return .= "$Url?do=download;page=".ReplaceSpaces($img)."\" ";
+    $return .= "$Url?do=view;page=".ReplaceSpaces($img)."\" ";
   } else {
     $return .= "$img\" ";
   }
@@ -1901,8 +1913,18 @@ sub DoAdminPlugins {
 sub DoAdminDeleted {
   # Force delete?
   if(GetParam('force',0)) {
-    my $dp = SanitizePageName(GetParam('force',''));
-    
+    my $dp = SanitizeFileName(GetParam('force',''));
+    unless(GetParam('confirm','no') eq 'yes') {
+      # Ask for confirmation
+      print $q->p("Are you sure you want to delete $dp? ".
+	AdminLink('deleted', 'YES', 'force='.$dp, 'confirm=yes')." ".
+	AdminLink('deleted', 'NO'));
+    } else {
+      # Delete the page
+      DoMaintDeletePages($dp);
+      print $q->p('Page deleted. '.AdminLink('deleted', 'Go back'));
+    }
+    return;
   }
   # Otherwise, list
   my @deleted = ListDeletedPages();
@@ -2279,6 +2301,30 @@ sub DoDownload {
     my @lines = split(/\n/,$F{text});
     shift @lines;
     $F{text} = join("\n", @lines);
+    my $filename = (($F{filename}) ? $F{filename} : GetParam('page'));
+    #my %headers = ( -type=>'application/x-download;name='.$filename,
+    #  #-attachment=>$filename);
+    #  -Disposition=>'attachment;filename='.$filename );
+    my %headers = ( -type=>'application/octet-stream;name='.$filename,
+      -attachment=>$filename,
+      -disposition=>'attachment;filename='.$filename );
+    $headers{-Content_Encoding} = $2 if $2;
+    print $q->header(%headers);
+    require MIME::Base64;
+    print MIME::Base64::decode($F{text});
+  } else {
+    ErrorPage(400, "Something terribly wrong has happend, and I'll be honest,".
+      " I've got nothing...");
+  }
+}
+
+sub DoView {
+  my %F = GetPage(GetParam('page'),GetParam('revision',''));
+  if($F{text} =~ m/^#FILE (\S+) ?(\S+)?\n/) {
+    # We've got a raw file
+    my @lines = split(/\n/,$F{text});
+    shift @lines;
+    $F{text} = join("\n", @lines);
     my %headers = ( -type=>$1 );
     $headers{-Content_Encoding} = $2 if $2;
     print $q->header(%headers);
@@ -2448,22 +2494,30 @@ sub DoHistory {
   my $topone = " checked";
   if(PageExists($Page)) {
     %f = GetPage($Page);
+    my $isupload = 0;
+    if($f{text} =~ m/#FILE /) { $isupload = 1; }
     my $currentday = YMD($f{ts});
-    my $linecount = (split(/\n/,$f{text}));
-    my $wordcount = @{[ $f{text} =~ /\S+/g ]};
-    my $scharcount = length($f{text}) - (split(/\n/,$f{text}));
-    my $charcount = $scharcount - ($f{text} =~ tr/ / /);
+    my ($linecount, $wordcount, $scharcount, $charcount);
+    unless($isupload) {
+      $linecount = (split(/\n/,$f{text}));
+      $wordcount = @{[ $f{text} =~ /\S+/g ]};
+      $scharcount = length($f{text}) - (split(/\n/,$f{text}));
+      $charcount = $scharcount - ($f{text} =~ tr/ / /);
+    }
     print "<p><strong>History of $Page</strong><br/>".
       "The most recent revision number of this page is $f{'revision'}. ";
     if($CountPageVisits) {
       print "It has been viewed ".Commify(GetPageViewCount($Page))." time(s). ";
     }
     print "It was last modified ".(FriendlyTime($f{'ts'}))[$TimeZone].
-      " by ".QuoteHTML($f{author}).". ".
-      "There are ".Commify($linecount)." lines of text, ".Commify($wordcount).
-      " words, ".Commify($scharcount)." characters with spaces and ".
-      Commify($charcount)." without. ".
-      "The total page size (including metadata) is ".Commify((stat("$PageDir/$ShortDir/$Page"))[7])." bytes.";
+      " by ".QuoteHTML($f{author}).". ";
+    unless($isupload) {
+      print "There are ".Commify($linecount)." lines of text, ".Commify($wordcount).
+        " words, ".Commify($scharcount)." characters with spaces and ".
+        Commify($charcount)." without. ";
+    }
+    print "The total page size (including metadata) is ".
+      Commify((stat("$PageDir/$ShortDir/$Page"))[7])." bytes.";
     print "</p>";
     # If the page is set for deletion, let them know
     if($f{text} =~ m/^DeletedPage\n/) {
@@ -2826,15 +2880,20 @@ sub DoMaintTrimVisit {
 
 sub DoMaintDeletePages {
   # Delete pages that are marked "DeletedPage" and older than $PurgeDeletedPage
+  my $param = shift;
   my @list;
   my @files;
   my @archives;
-  my $RemoveTime = $TimeStamp - $PurgeDeletedPage;
-  @list = ListDeletedPages();
-  # Go through @list, see what is over $PurgeDeletedPage
-  foreach my $listitem (@list) {
-    my %f = GetPage($listitem);
-    if($f{ts} < $RemoveTime) { push @files, $listitem; }
+  my $RemoveTime = ($param) ? $TimeStamp : $TimeStamp - $PurgeDeletedPage;
+  unless($param) {
+    @list = ListDeletedPages();
+    # Go through @list, see what is over $PurgeDeletedPage
+    foreach my $listitem (@list) {
+      my %f = GetPage($listitem);
+      if($f{ts} < $RemoveTime) { push @files, $listitem; }
+    }
+  } else {
+    if(PageExists($param)) { push @files, $param; }
   }
   if(@files) {
     foreach my $file (@files) {
@@ -3005,6 +3064,7 @@ sub DoRandom {
 
 sub PageExists {
   my ($pagename, $revision) = @_;
+  $pagename = SanitizeFileName(ReplaceSpaces($pagename));
   # $archive will be the 1-letter dir under /archive that we're writing to
   my $archive = substr($pagename,0,1); $archive =~ tr/[a-z]/[A-Z]/;
   if($revision and $revision !~ m/\d+/) {
@@ -3123,7 +3183,7 @@ sub CommandLink {
   if($pg) { $ret .= $pg; }
   $ret .= "?";
   $ret .= "do=$do" if $do;
-  if($do and @extras) { $ret .= ";"; }
+  if($do ne '' and scalar(@extras) > 0) { $ret .= ";"; }
   $ret .= join(';',@extras) if @extras;
   return $q->a({-href=>$ret, -title=>$title, -rel=>'nofollow'}, $text);
 }
@@ -3232,9 +3292,18 @@ sub DoRequest {
       }
       if($Filec{text} =~ m/^#FILE /) {
 	print $q->p("This page contains a file:");
-	print $q->pre(CommandLink('download',$Page,
-          ($Filec{filename}) ? $Filec{filename} : $Page, 'View file',
-          (GetParam('revision')) ? 'revision='.GetParam('revision') : ''));
+	#print $q->pre(CommandLink('download',$Page,
+        #  ($Filec{filename}) ? $Filec{filename} : $Page, 'View file',
+        #  (GetParam('revision')) ? 'revision='.GetParam('revision') : ''));
+	print $q->pre((($Filec{filename}) ? $Filec{filename} : $Page).' ('.
+	  CommandLink('view',$Page,
+	    'View', 'View the file',
+	    (GetParam('revision')) ? 'revision='.GetParam('revision') : '').
+	  ', '.
+	  CommandLink('download',$Page,
+            'Download', 'Download the file',
+            (GetParam('revision')) ? 'revision='.GetParam('revision') : '').
+	  ')');
       } elsif(exists &Markup) {	# If there's markup defined, do markup
 	$content = Markup($Filec{text});
 	#print Markup($Filec{text});
