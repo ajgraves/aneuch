@@ -1284,6 +1284,7 @@ sub DoEdit {
 	print $q->submit(-name=>'whattodo', -value=>'Save'), " ";
 	print $q->submit(-name=>'whattodo', -value=>'Preview'), " ";
       }
+      print $q->submit(-name=>'whattodo', -value=>'Delete'), " ";
       print $q->submit(-name=>'whattodo', -value=>'Cancel');
     }
     print "</p>".$q->endform;
@@ -2637,6 +2638,7 @@ sub DoPostingLogin {
 
 sub DoPostingEditing {
   my $redir;
+  my @redirparams;
   if(CanEdit()) {
     # Set user name if not already done
     my ($u, $p) = ReadCookie();
@@ -2649,6 +2651,11 @@ sub DoPostingEditing {
       foreach my $file (@tfiles) { unlink $file; }
     } elsif(GetParam('whattodo') eq "Preview") {
       Preview(GetParam('file'));
+      $redir = 1;
+    } elsif(GetParam('whattodo') eq "Delete") {
+      push @redirparams, "text=DeletedPage";
+      push @redirparams, "summary=Marking page for deletion";
+      push @redirparams, "clear=1";
       $redir = 1;
     } else {
       # We need to check for locks, first!
@@ -2675,7 +2682,7 @@ sub DoPostingEditing {
     }
   }
   if($redir) {
-    ReDirect($Url."?do=edit;page=".GetParam('file'));
+    ReDirect($Url."?do=edit;page=".GetParam('file').';'.join(';',@redirparams));
   } else {
     ReDirect($Url.GetParam('file'));
   }
@@ -2745,6 +2752,11 @@ sub DoPostingRobotsTxt {
 sub DoPostingUpload {
   if(GetParam('whattodo') eq "Cancel") {
     ReDirect($Url.GetParam('file'));
+    return;
+  }
+  if(GetParam('whattodo') eq "Delete") {
+    ReDirect($Url.GetParam('file').'?do=edit;'.
+      'text=DeletedPage;summary=Marking page for deletion;clear=1');
     return;
   }
   if(CanEdit() and CanUpload()) {
