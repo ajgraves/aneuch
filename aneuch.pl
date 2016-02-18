@@ -2505,7 +2505,8 @@ sub DoHistory {
       $scharcount = length($f{text}) - (split(/\n/,$f{text}));
       $charcount = $scharcount - ($f{text} =~ tr/ / /);
     }
-    print "<p><strong>History of $Page</strong><br/>".
+    print "<p><strong>History of ".
+      $q->a({-href=>$Url.$Page}, $Page)."</strong><br/>".
       "The most recent revision number of this page is $f{'revision'}. ";
     if($CountPageVisits) {
       print "It has been viewed ".Commify(GetPageViewCount($Page))." time(s). ";
