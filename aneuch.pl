@@ -1,6 +1,6 @@
 #!/usr/bin/perl -wT
 ## **********************************************************************
-## Copyright (c) 2012-2015, Aaron J. Graves (cajunman4life@gmail.com)
+## Copyright (c) 2012-2016, Aaron J. Graves (cajunman4life@gmail.com)
 ## All rights reserved.
 ##
 ## Redistribution and use in source and binary forms, with or without 
@@ -57,8 +57,8 @@ my %srvr = (
   80 => 'http://',	443 => 'https://',
 );
 
-$VERSION = '0.50';	# Set version number
-$VERSIONID = '0050';	# Version ID
+$VERSION = '0.60';	# Set version number
+$VERSIONID = '0060';	# Version ID
 
 # Subs
 sub InitConfig  {
@@ -2633,7 +2633,9 @@ sub DoPostingSpam {
 }
 
 sub DoPostingLogin {
-  SetCookie(GetParam('user'), GetParam('pass'));
+  # UnquoteHTML() needs to be called for password, otherwise special
+  #  characters will cause problems.
+  SetCookie(GetParam('user'), UnquoteHTML(GetParam('pass')));
   ReDirect($Url."?do=admin");
 }
 
@@ -3055,6 +3057,9 @@ sub DoDiff {
       %F = ReadDB("$PageDir/$ShortDir/$newrev");
     }
     if($F{text} !~ m/^#FILE /) {
+      print '<p>Showing '.(defined $rv{v2} ? 'revision '.$rv{v2} :
+	'current revision')." of page <a href=\"$Url$Page\">$Page</a>".
+	'</p>';
       if(defined &Markup) {
 	print Markup($F{text});
       } else {
