@@ -1397,7 +1397,11 @@ sub WritePage {
     StringToFile($content, "$TempDir/new");
     my %T = GetPage($file);
     StringToFile($T{text}, "$TempDir/old");
-    $diff = `diff $TempDir/old $TempDir/new`;
+    # Untaint $TempDir. This is a little bit of a flub though, because
+    #  there shouldn't be any way an end-user can modify $TempDir, so we're
+    #  assuming that $TempDir is absolutely fine.
+    my ($TD) = ($TempDir =~ /^(.*)$/g);
+    $diff = `diff $TD/old $TD/new`;
     $diff =~ s/\\ No newline.*\n//g;
     $diff =~ s/\r//g;
   }
@@ -1513,7 +1517,10 @@ sub AppendPage {
   $F{text} =~ s/\r//g;
   StringToFile($T{text}, "$TempDir/old");
   StringToFile($F{text}, "$TempDir/new");
-  my $diff = `diff $TempDir/old $TempDir/new`;
+  # Untaint $TempDir. Because an end-user shouldn't be able to modify this,
+  #  we're assuming that it's perfectly clean.
+  my ($TD) = ($TempDir =~ /^(.*)$/g);
+  my $diff = `diff $TD/old $TD/new`;
   $diff =~ s/\\ No newline.*\n//g;
   $F{diff} = $diff;
   WriteDB("$PageDir/$archive/$file", \%F);
@@ -1534,7 +1541,8 @@ sub ListAllPages {
 
 sub ListAllFiles {
   my @files;
-  open my($FL), "grep -rli '^text: #FILE ' $PageDir 2>/dev/null |";
+  my ($PD) = ($PageDir =~ /^(.*)$/g);
+  open my($FL), "grep -rli '^text: #FILE ' $PD 2>/dev/null |";
   while(<$FL>) {
     push @files, $1 if m#^$PageDir/.{1}/(.*)$#;
   }
@@ -1544,7 +1552,8 @@ sub ListAllFiles {
 
 sub ListAllTemplates {
   my @templates;
-  open my($FL), "grep -rli '^template: 1' $PageDir 2>/dev/null |";
+  my ($PD) = ($PageDir =~ /^(.*)$/g);
+  open my($FL), "grep -rli '^template: 1' $PD 2>/dev/null |";
   while(<$FL>) {
     push @templates, $1 if m#^$PageDir/.{1}/(.*)$#;
   }
@@ -1554,7 +1563,8 @@ sub ListAllTemplates {
 
 sub ListDeletedPages {
   my @list;
-  open my($FILES), "grep -rli '^text: DeletedPage' $PageDir 2>/dev/null |";
+  my ($PD) = ($PageDir =~ /^(.*)$/g);
+  open my($FILES), "grep -rli '^text: DeletedPage' $PD 2>/dev/null |";
   while(<$FILES>) {
     push @list, $1 if m#^$PageDir/.{1}/(.*)$#;
   }
@@ -2199,7 +2209,7 @@ sub DoDiscuss {
     if((stat("$TempDir/$Page.$UserIP"))[9] < ($TimeStamp - 10)) {
       unlink "$TempDir/$Page.$UserIP";
     } else {
-      $newtext = FileToString("$TempDir/$Page.$UserIP");
+      $newtext = UnquoteHTML(FileToString("$TempDir/$Page.$UserIP"));
       print "<div class=\"preview\">".Markup($newtext)."</div>";
       my @ta = split(/\n\n/,$newtext); pop @ta;
       $newtext = join("\n\n", @ta);
@@ -2286,7 +2296,11 @@ sub DoLinkedPages {
   $searchparam =~ s/_/[ _]/g;
   $Param{'search'} = '\[\['.$searchparam.'[|\]]';
   print "<h2>Pages that link to '<a href=\"${ShortUrl}$Page\">$Page</a>'</h2>";
-  chomp(my @files = `grep -Prl '$Param{'search'}' $PageDir`);
+  # Untaint $Param{'search'} and $PageDir. $PageDir should not be able to be
+  #  modified by an end-user, however $Param{'search'} might be tainted.
+  my ($PD) = ($PageDir =~ /^(.*)$/g);
+  my ($PS) = ($Param{'search'} =~ /^(.*)$/g);
+  chomp(my @files = `grep -Prl '$PS' $PD`);
   s/$PageDir\/.{1}\/// for @files;
   print "<ul>";
   foreach (@files) {
@@ -2379,8 +2393,13 @@ sub DoSearch {
   my %result;
   # Get the list of files whos file names match
   @files = grep(/.*?($search|$altsearch).*?/i,ListAllPages());
+  # Untaint the variables
+  my ($S) = ($search =~ /^(.*)$/g);
+  my ($AS) = ($altsearch =~ /^(.*)$/g);
+  my ($PD) = ($PageDir =~ /^(.*)$/g);
   # Search the innards of the files
-  open my($FILES), "grep -Erli '($search|$altsearch)' $PageDir 2>/dev/null |";
+  #open my($FILES), "grep -Erli '($search|$altsearch)' $PageDir 2>/dev/null |";
+  open my($FILES), "grep -Erli '($S|$AS)' $PD 2>/dev/null |";
   while(<$FILES>) {
     push @files, $1 if m#^$PageDir/.{1}/(.*)$#;
   }
@@ -2820,12 +2839,21 @@ sub DoVisit {
   }
   if($CountPageVisits and PageExists($Page) and !GetParam('do',0)) {
     my %f = ReadDB($PageVisitFile);
+    open my($VISITFILE), '>', $PageVisitFile or return; # Return if can't open
+    flock($VISITFILE, LOCK_EX) or return; # Exclusive lock or return
+    seek($VISITFILE, 0, SEEK_SET); # Beginning
     if(defined $f{$Page}) {
       $f{$Page}++;
     } else {
       $f{$Page} = 1;
     }
-    WriteDB($PageVisitFile, \%f);
+    #WriteDB($PageVisitFile, \%f);
+    foreach my $key (sort keys %f) {
+      #$f{$key} =~ s/\n/\n\t/g;
+      #$f{$key} =~ s/\r//g;
+      print $VISITFILE "$key: ".$f{$key}."\n";
+    }
+    close($VISITFILE);
   }
 }
 
@@ -2885,8 +2913,10 @@ sub DoMaintTrimVisit {
     flock($LOGFILE,LOCK_EX) or return;	# Exclusive lock or return
     seek($LOGFILE, 0, SEEK_SET);	# Beginning
     @lf = reverse(@lf);
-    my @new = @lf[0 .. ($MaxVisitorLog - 1)];
-    @lf = reverse(@new);
+    #my @new = @lf[0 .. ($MaxVisitorLog - 1)];
+    $#lf = $MaxVisitorLog - 1;
+    #@lf = reverse(@new);
+    @lf = reverse(@lf);
     seek($LOGFILE, 0, SEEK_SET);	# Return to the beginning
     print $LOGFILE "" . join("\n", @lf) . "\n";
     close($LOGFILE);
@@ -2987,7 +3017,11 @@ sub GetDiff {
   # Write them out
   StringToFile($OldFile{text}, "$TempDir/old");
   StringToFile($NewFile{text}, "$TempDir/new");
-  my $diff = `diff $TempDir/old $TempDir/new`;
+  # Untaint $TempDir. This is a little bit of a flub though, because
+  #  there shouldn't be any way an end-user can modify $TempDir, so we're
+  #  assuming that $TempDir is absolutely fine.
+  my ($TD) = ($TempDir =~ /^(.*)$/g);
+  my $diff = `diff $TD/old $TD/new`;
   $diff =~ s/\\ No newline.*\n//g;
   return $diff;
 }
@@ -3048,23 +3082,24 @@ sub DoDiff {
     my $newrev = defined $rv{v2} ? "$Page.$rv{v2}" : "$Page";
     print "<p>Comparing revision $rv{v1} to ".
       (defined $rv{v2} ? $rv{v2} : "current") . " of page ".
-      "<a href=\"$Url$Page\">$Page</a></p>";
-    print HTMLDiff(GetDiff($oldrev, $newrev));
-    print "<hr/>";
+      "<a href=\"$Url$Page\">$Page</a> ";
+      print '('.(defined $rv{v2} ? 'revision '.$rv{v2} :
+	'the current revision').' is displayed below)</p>';
     if(($newrev =~ m/\.\d+$/) and (-f "$ArchiveDir/$ShortDir/$newrev")) {
       %F = ReadDB("$ArchiveDir/$ShortDir/$newrev");
     } else {
       %F = ReadDB("$PageDir/$ShortDir/$newrev");
     }
     if($F{text} !~ m/^#FILE /) {
-      print '<p>Showing '.(defined $rv{v2} ? 'revision '.$rv{v2} :
-	'current revision')." of page <a href=\"$Url$Page\">$Page</a>".
-	'</p>';
+      print HTMLDiff(GetDiff($oldrev, $newrev));
+      print "<hr/>";
       if(defined &Markup) {
 	print Markup($F{text});
       } else {
 	print $F{text};
       }
+    } else {
+      print "<p>You are comparing uploaded files, this functionality is not supported.</p>";
     }
   }
 }
@@ -3175,8 +3210,12 @@ sub DoSurgeProtection {
   return 0 if IsAdmin();
   # Get the time in the past we're starting to look
   my $spts = $TimeStamp - $SurgeProtectionTime;
+  # Untaint $UserIP, $VisitorLog and $spts.
+  my ($UIP) = ($UserIP =~ /^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/g);	# nnn.nnn.nnn.nnn
+  my ($VL) = ($VisitorLog =~ /^(.*)$/g);		# Safe
+  ($spts) = ($spts =~ /^(\d*)$/g);			# numeric
   # Now, count the elements that match
-  chomp(my @counts = split(/\n/,`grep ^$UserIP $VisitorLog | awk '\$2>$spts'`));
+  chomp(my @counts = split(/\n/,`grep ^$UIP $VL | awk '\$2>$spts'`));
   if($#counts >= $SurgeProtectionCount) {
     # Surge protection has been triggered! Give an error page and bug out.
     return 1;
