@@ -98,7 +98,7 @@ sub InitVars {
   $MaxVisitorLog = 1000 unless $MaxVisitorLog;	# Keep at most 1000 entries in
 						#  visitor log
   $RemoveOldTemp = 60*60*24*7 unless $RemoveOldTemp; # > 7 days
-  $PurgeRC = 60*60*24*7 unless $PurgeRC;	# > 7 days
+  $PurgeRC = 60*60*24*14 unless $PurgeRC;	# > 14 days
   $PurgeArchives = -1 unless $PurgeArchives;	# Default to keep all!
   $Theme = "" unless $Theme;		# No theme by default
   $FancyUrls = 1 unless defined $FancyUrls;	# Use fancy urls w/.htaccess
@@ -261,7 +261,8 @@ sub InitVars {
   }
 
   # Navbar
-  $NavBar = "<ul id=\"navbar\">";
+  #$NavBar = "<ul id=\"navbar\">";
+  #$NavBar = "<ul class=\"nav navbar-nav\">";
   foreach ($DefaultPage, 'RecentChanges', @NavBarPages) {
     $NavBar .= '<li><a href="'.$Url.ReplaceSpaces($_).'" title="'.$_.'"';
     if($Page eq ReplaceSpaces($_)) {
@@ -269,7 +270,7 @@ sub InitVars {
     }
     $NavBar .= '>'.$_.'</a></li>';
   }
-  $NavBar .= "</ul>";
+  #$NavBar .= "</ul>";
 
   # Search box
   $SearchBox = SearchForm() unless $SearchBox;  # Search box code
@@ -349,6 +350,7 @@ sub InitVars {
   RegRawHandler('view');
   RegRawHandler('random');
   RegRawHandler('robotstxt');
+  RegRawHandler('spam');
 
   # Is robots.txt? Let's send it.
   if($Page eq "robots.txt") { SetParam('do','robotstxt'); }
@@ -381,15 +383,89 @@ sub DoPostInit {
 
 sub DoHeader {
   if(!$Theme or !-d "$ThemeDir/$Theme") {
-    print "<!DOCTYPE html>\n".
-      '<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">'.
-      "<head><title>$PageName - $SiteName</title>\n".
-      "<meta name=\"generator\" content=\"Aneuch $VERSION\" />\n".
-      '<style type="text/css">'.DoCSS().
-      "</style></head>\n<body>\n<div id=\"container\">\n".
-      "<div id=\"header\"><div id=\"searchbox\">".SearchForm().
-      "</div>\n".
-      "<a title=\"Return to $DefaultPage\" href=\"$Url\">$SiteName</a>: <h1>";
+    # Default header!
+    print <<EOF;
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- The above 3 meta tags *must* come first in the head; any other head content must come *after* these tags -->
+    <meta name="generator" content="Aneuch $VERSION" />
+    <title>$PageName - $SiteName</title>
+
+    <!-- Bootstrap -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFfwwEAa8hDDdjZlpLegxhjVME1fgjWPGmkzs7" crossorigin="anonymous">
+
+    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
+    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+    <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+      <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+    <![endif]-->
+    <style type="text/css">
+EOF
+    print DoCSS();
+    print <<EOF;
+    </style>
+  </head>
+  <body>
+
+    <nav class="navbar navbar-inverse navbar-fixed-top">
+      <div class="container">
+        <div class="navbar-header">
+          <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar" aria-expanded="false" aria-controls="navbar">
+            <span class="sr-only">Toggle navigation</span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </button>
+          <a class="navbar-brand" href="$Url">$SiteName</a>
+        </div>
+        <div id="navbar" class="collapse navbar-collapse">
+          <ul class="nav navbar-nav">
+EOF
+    my $counter = 1;
+    foreach ($DefaultPage, 'RecentChanges', @NavBarPages) {
+      print '<li><a href="'.$Url.ReplaceSpaces($_).'" title="'.$_.'"';
+      if($Page eq ReplaceSpaces($_)) {
+	print ' class="active"';
+      }
+      print '>'.$_.'</a></li>';
+      $counter++;
+      if($counter == 3) {
+	print '<li class="dropdown">'.
+          '<a href="#" class="dropdown-toggle" data-toggle="dropdown" '.
+	  'role="button" aria-haspopup="true" aria-expanded="false">More '.
+	  '<span class="caret"></span></a>'.
+          '<ul class="dropdown-menu">';
+      }
+    }
+    my $search = GetParam('search','');
+    print <<EOF;
+            </ul></li>
+          </ul>
+          <form action="$Url" method="get" class="navbar-form navbar-right">
+            <div class="form-group">
+              <input type="hidden" name="do" value="search">
+              <input type="text" placeholder="Search" name="search" value="$search" class="form-control">
+            </div>
+            <button type="submit" class="btn btn-success">Search</button>
+          </form>
+        </div><!--/.nav-collapse -->
+      </div>
+    </nav>
+
+    <div class="container"
+EOF
+    if((CanEdit()) and (!IsDiscussionPage()) and (!GetParam('do'))) {
+      print " ondblclick=\"window.location.href='$Url?do=edit;page=$Page'\"";
+    }
+    print '>';
+    print '      <div class="starter-template">'.
+      '        <div class="page-header">'.
+      '          <h1>';
     if(PageExists($Page)) {
       print "<a title=\"Search for references to $SearchPage\" ".
 	"rel=\"nofollow\" href=\"$Url?do=search;search=".
@@ -397,13 +473,11 @@ sub DoHeader {
     } else {
       print "$PageName";
     }
-    print "</h1>\n</div>\n<div class=\"navigation\">\n<ul>$NavBar</ul></div>".
-      "<div id=\"content\"";
-    if((CanEdit()) and (!IsDiscussionPage()) and (!GetParam('do'))) {
-      print " ondblclick=\"window.location.href='$Url?do=edit;page=$Page'\"";
-    }
-    print '><span id="top"></span>';
+    print '          </h1>'.
+      '        </div>';
+    # end of default theme header
   } else {
+    # Not the default
     if(-f "$ThemeDir/$Theme/head.pl") {
       do "$ThemeDir/$Theme/head.pl";
     } elsif(-f "$ThemeDir/$Theme/head.html") {
@@ -414,21 +488,43 @@ sub DoHeader {
 
 sub DoFooter {
   if(!$Theme or !-d "$ThemeDir/$Theme") {
-    print '<span id="bottom"></span></div> <!-- content -->'.
-      '<div class="navigation">'."<ul>";
+    # Default theme footer
+    print <<EOF;
+      </div> <!-- /starter-template -->
+    </div> <!-- /container -->
+        <div class="container">
+          <ul class="nav nav-pills" role="tablist">
+EOF
     # If we want discussion pages
     if($DiscussPrefix) {
       print "<li>$DiscussText</li>";
     }
-    print "<li>$EditText</li><li>$RevisionsText</li><li>$AdminText</li>".
-      "<li>$RandomText</li></ul>".'<div id="identifier"><strong>'.
-      $SiteName.'</strong> is powered by <em>Aneuch</em>.</div>'.
-      '</div> <!-- navigation --><div id="footer"><div id="mtime">';
+    print <<EOF;
+            <li>$EditText</li><li>$RevisionsText</li><li>$AdminText</li><li>$RandomText</li>
+          </ul></div>
+
+    <footer class="footer">
+      <div class="container">
+EOF
     if(PageExists($Page)) {
       print Commify(GetPageViewCount($Page))." view(s).&nbsp;&nbsp;";
     }
-    print "$MTime</div>$PostFooter</div> <!-- footer --></div> ".
-      "<!-- container --></html>";
+print <<EOF;
+        $MTime
+      </div>
+      <div class="container">
+        $PostFooter
+      </div>
+    </footer>
+
+    <!-- jQuery (necessary for Bootstrap's JavaScript plugins) -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+    <!-- Include all compiled plugins (below), or include individual files as needed -->
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js" integrity="sha384-0mSbJDEHialfmuBBQP6A4Qrprq5OVfW37PRR3j5ELqxss1yVqOtnepnHVP9aJ7xS" crossorigin="anonymous"></script>
+  </body>
+</html>
+EOF
+    # End of default theme footer
   } else {
     if(-f "$ThemeDir/$Theme/foot.pl") {
       do "$ThemeDir/$Theme/foot.pl";
@@ -487,12 +583,12 @@ sub MarkupBuildLink {
   } else {			# Internal link!
     my $testhref = (split(/#/,$href))[0];
     $testhref = (split(/\?/,$testhref))[0];
-    if((PageExists(ReplaceSpaces($testhref))) or ($testhref =~ m/^\?/)
-     or (ReplaceSpaces($testhref) =~ m/^$DiscussPrefix/)
+    if((PageExists(SanitizeFileName($testhref))) or ($testhref =~ m/^\?/)
+     or (SanitizeFileName($testhref) =~ m/^$DiscussPrefix/)
      or ($testhref =~ m/^$url/) or ($testhref eq '') or (!CanEdit())) {
       $return = "<a title='".ReplaceSpaces($href)."' href='";
-      if(($href !~ m/^$url/) and ($href !~ m/^#/)) {
-	$return .= $Url.ReplaceSpaces($href);
+      if(($href !~ m/^$url/) and ($href !~ m/^[#\?]/)) {
+	$return .= $Url.SanitizeFileName($href);
       } else {
 	$return .= $href;
       }
@@ -500,8 +596,8 @@ sub MarkupBuildLink {
     } else {
       $return = "[<span style=\"border-bottom: 1px dashed #FF0000;\">".
 	"$text</span>".
-	CommandLink('edit', ReplaceSpaces($href), '?',
-	  "Create page \"".ReplaceSpaces($href)."\"")."]";
+	CommandLink('edit', SanitizeFileName($href), '?',
+	  "Create page \"".SanitizeFileName($href)."\"")."]";
     }
   }
   return $return;
@@ -994,6 +1090,7 @@ sub SanitizeFileName {
 
 sub InitDirs {
   # Sets the directories, and creates them if need be.
+  ($DataDir) = ($DataDir =~ /^([-\/\w.]+)$/); # Untaint
   eval { mkdir $DataDir unless -d $DataDir; }; push @Messages, $@ if $@;
   $PageDir = "$DataDir/pages";
   eval { mkdir $PageDir unless -d $PageDir; }; push @Messages, $@ if $@;
@@ -1233,7 +1330,7 @@ sub DoEdit {
   }
 
   if($preview) {
-    print $q->div({-class=>'preview'},Markup($contents));
+    print $q->div({-class=>'alert alert-warning'},Markup($contents));
   }
 
   if($canedit) {
@@ -1375,11 +1472,16 @@ sub DoArchive {
 
 sub WritePage {
   my ($file, $content, $user) = @_;
+  $file = SanitizeFileName($file);
+  ($TempDir) = ($TempDir =~ /^([-\/\w.]+)$/);
+  ($file) = ($file =~ /^([a-zA-Z0-9._~#-]*)$/);
+  ($UserName) = ($UserName =~ /^([a-zA-Z0-9._~#-]*)$/);
   if(-f "$TempDir/$file.$UserName") {	# Remove preview files
     unlink "$TempDir/$file.$UserName";
   }
   # $archive will be the 1-letter dir under /archive that we're writing to
   my $archive = substr($file,0,1); $archive =~ tr/[a-z]/[A-Z]/;
+  ($archive) = ($archive =~ /^([A-Z0-9]{1})$/);
   # If $archive doesn't exist, we'd better create it...
   if(! -d "$PageDir/$archive") { mkdir "$PageDir/$archive"; }
   chomp($content);
@@ -1400,7 +1502,7 @@ sub WritePage {
     # Untaint $TempDir. This is a little bit of a flub though, because
     #  there shouldn't be any way an end-user can modify $TempDir, so we're
     #  assuming that $TempDir is absolutely fine.
-    my ($TD) = ($TempDir =~ /^(.*)$/g);
+    my ($TD) = ($TempDir =~ /^([-\/\w.]+)$/g);
     $diff = `diff $TD/old $TD/new`;
     $diff =~ s/\\ No newline.*\n//g;
     $diff =~ s/\r//g;
@@ -1533,9 +1635,19 @@ sub AppendPage {
 }
 
 sub ListAllPages {
-  my @files = (glob("$PageDir/*/*"));
-  s#^$PageDir/.*?/## for @files;
-  @files = sort(@files);
+  #my @files = (glob("$PageDir/*/*"));
+  #s#^$PageDir/.*?/## for @files;
+  #@files = sort(@files);
+  my @files;
+  my $force = shift;
+  $force ||= 0;
+  if($force) {
+    @files = (glob("$PageDir/*/*"));
+    s#^$PageDir/.*?/## for @files;
+    @files = sort(@files);
+  } else {
+    @files = sort(FileToArray("$DataDir/pageindex"));
+  }
   return @files;
 }
 
@@ -1678,7 +1790,7 @@ sub DoAdminIndex {
 }
 
 sub RebuildIndex {
-  my @files = ListAllPages();
+  my @files = ListAllPages(1);
   StringToFile(join("\n",@files)."\n","$DataDir/pageindex");
   return scalar(@files);
 }
@@ -2047,37 +2159,58 @@ sub DoAdmin {
     $Page = (IsAdmin()) ? 'dashboard' : 'password';
   }
 
+  my $adminlink = "$Url?do=admin;page=";
+
   # Set the description for lock action
   # NOTE: The line below does nothing currently.
   #$AdminList{'lock'} = (-f "$DataDir/lock") ? 'Unlock the site' : 'Lock the site';
 
   #print '<div class="admin">';
-  print '<table width=100%><tr valign=top><td class="admin">';
-  print "<ul>";
+  #print '<table width=100%><tr valign=top><td class="admin">';
+  print '<div class="row"><div class="col-sm-3">';
+  #print '<div class="dropdown theme-dropdown clearfix">';
+  #print '<a id="adminMenu" href="#" class="sr-only dropdown-toggle" data-toggle="dropdown" role="button" aria-haspopup="true" aria-expanded="false">Dropdown <span class="caret"></span></a>';
+  #print '<ul class="dropdown-menu" aria-labelledby="adminMenu">';
+  #print '<ul class="list-group">';
+  print '<div class="list-group">';
   if($Page eq 'password') {
-    print $q->li({class=>'current'},AdminLink('password','Authenticate'));
+    #print $q->li({class=>'list-group-item active'},AdminLink('password','Authenticate'));
+    print $q->a({-class=>'list-group-item active', -href=>$adminlink.
+      'password'},"Authenticate");
   } else {
-    print $q->li(AdminLink('password','Authenticate')) unless IsAdmin();
+    #print $q->li({class=>'list-group-item'},AdminLink('password','Authenticate')) unless IsAdmin();
+    print $q->a({-class=>'list-group-item', -href=>$adminlink.'password'},
+      'Authenticate') unless IsAdmin();
   }
   if(IsAdmin()) {
     if($Page eq 'dashboard') {
-      print $q->li({class=>'current'},AdminLink('dashboard','Dashboard'));
+      #print $q->li({class=>'list-group-item active'},AdminLink('dashboard','Dashboard'));
+      print $q->a({-class=>'list-group-item active', -href=>$adminlink.
+	'dashboard'}, 'Dashboard');
     } else {
-      print $q->li(AdminLink('dashboard','Dashboard'));
+      #print $q->li({class=>'list-group-item'},AdminLink('dashboard','Dashboard'));
+      print $q->a({-class=>'list-group-item', -href=>$adminlink.'dashboard'},
+	'Dashboard');
     }
     my %al = reverse %AdminList;
     foreach my $listitem (sort keys %al) {
       next if $listitem eq '';
       if($Page eq $al{$listitem}) {
-	print $q->li({class=>'current'},AdminLink($al{$listitem},$listitem));
+	#print $q->li({class=>'list-group-item active'},AdminLink($al{$listitem},$listitem));
+	print $q->a({-class=>'list-group-item active', -href=>$adminlink.
+	  $al{$listitem}}, $listitem);
       } else {
-	print $q->li(AdminLink($al{$listitem},$listitem));
+	#print $q->li({class=>'list-group-item'},AdminLink($al{$listitem},$listitem));
+	print $q->a({-class=>'list-group-item', -href=>$adminlink.
+	  $al{$listitem}}, $listitem);
       }
     }
   }
+  print '</div></div>';
   #print '</div>'; #End of admin menu, now print page
-  print "</td><td style='padding-left:20px;'>";
+  #print "</td><td style='padding-left:20px;'>";
   #print '<div style="padding-left:10px;">';
+  print '<div class="col-sm-9">';
   if($Page and $AdminActions{$Page}) {
     if($Page eq 'password' or IsAdmin()) {
       &{$AdminActions{$Page}};
@@ -2085,7 +2218,8 @@ sub DoAdmin {
   }
   #print '</div>';
   #print '<div style="clear:both;"></div>'; #End of admin
-  print '</td></tr></table>';
+  #print '</td></tr></table>';
+  print '</div></div>';
 }
 
 sub Init {
@@ -2448,9 +2582,9 @@ sub DoSearch {
   print scalar(@keys)." pages found.";
   if((scalar(@keys) == 0) and CanEdit()) {
     print $q->em("Perhaps you'd like to ".
-      CommandLink('edit',ReplaceSpaces($search),
-	"create a page called ".ReplaceSpaces($search),
-	"Create page ".ReplaceSpaces($search))."?");
+      CommandLink('edit',SanitizeFileName($search),
+	"create a page called ".SanitizeFileName($search),
+	"Create page ".SanitizeFileName($search))."?");
   }
 }
 
@@ -3042,13 +3176,13 @@ sub HTMLDiff {
     my ($o, $n) = split(/\n---\n/,$next,2);
     s#\n#<br/>#g for ($o,$n);
     if($o and $n) {
-      $return .= "<div class='old'>$o</div><p><strong>to</strong></p>\n".
-	"<div class='new'>$n</div><hr/>";
+      $return .= "<div class='alert alert-danger'>$o</div><p><strong>to</strong></p>\n".
+	"<div class='alert alert-success'>$n</div><hr/>";
     } else {
       if($h =~ m/Added:/) {
-	$return .= "<div class='new'>";
+	$return .= "<div class='alert alert-success'>";
       } else {
-	$return .= "<div class='old'>";
+	$return .= "<div class='alert alert-danger'>";
       }
       $return .= "$o</div><hr/>";
     }
@@ -3148,8 +3282,10 @@ sub DiscussCount {
 
 sub DoSpam {
   # Someone posted spam, now tell them about it.
-  print "It appears that you are attempting to spam $Page. ".
-    "Please don't do that.";
+  #print "It appears that you are attempting to spam $Page. ".
+  #  "Please don't do that.";
+  ErrorPage(403, "It appears that you are attempting to spam $Page. ".
+    "Please don't do that.");
 }
 
 sub IsBlocked {
@@ -3398,175 +3534,66 @@ DoMaint();	# Run maintenance commands
 # Everything below the DATA line is the default CSS
 
 __DATA__
-html
-{
-  font-family: sans-serif;
-  font-size: 1em;
+body {
+  /* padding-top: 50px;
+  margin-bottom: 60px; */
 }
 
-body
-{
-  padding:0;
-  margin:0;
+.container {
+  margin-left: 15px;
+  margin-right: 15px;
+  width: 97%;
 }
 
-pre
-{
-  overflow: auto;
-  word-wrap: break-word; /*normal;*/
-  /*border: 1px solid rgb(204, 204, 204);
-  border-radius: 2px 2px 2px 2px;
-  box-shadow: 0px 0px 0.5em rgb(204, 204, 204) inset;*/
-  margin-left: 1em;
-  padding: 0.7em 1em;
-  font-family: Consolas,"Andale Mono WT","Andale Mono","Bitstream Vera Sans Mono","Nimbus Mono L",Monaco,"Courier New",monospace;
-  font-size: 1em;
-  direction: ltr;
-  text-align: left;
-  /*background-color: rgb(251, 250, 249);
-  color: rgb(51, 51, 51);*/
+.starter-template {
+  padding: 40px 15px;
+  /*text-align: center;*/
+  text-align: justify;
+  font-size: 1.1em;
 }
 
-#container
-{
-  /*margin: 0 30px;*/
-  background: #fff;
-}
-
-#header
-{
-  /*background: #ccc;*/
-  background: rgb(230, 234, 240); /*rgb(243,243,243);*/
-  border:1px solid rgb(221,221,221);
-  padding: 15px;
-  color: rgb(68, 119, 255);
-}
-
-#header h1
-{
-  margin: 0;
-  display:inline;
-  color: rgb(68, 119, 255);
-  font-size: 20pt;
-}
-
-#header a {
-  text-decoration: none;
-  color: rgb(68, 119, 255);
-}
-
-#header h1 a
-{
-  color: rgb(68, 119, 255);
-  text-decoration:none;
-}
-
-#header a:hover {
-  color: green;
-  text-decoration: underline;
-}
-
-#searchbox {
-  float:right;
-  clear:left;
-}
-
-.navigation
-{
-  float: left;
+.starter-template textarea {
+  padding: 3px;
   width: 100%;
-  background: #333;
-  /*background:rgb(214, 228, 249);*/
 }
 
-.navigation ul
-{
-  margin: 0;
-  padding: 0;
-}
-
-.navigation ul li
-{
-  list-style-type: none;
-  display: inline;
-}
-
-.navigation li a
-{
-  display: block;
-  float: left;
-  padding: 5px 10px;
-  color: #fff;
-  text-decoration: none;
-  border-right: 1px solid #fff;
-}
-
-.navigation li a:hover {
-  background: rgb(129, 187, 242);/*#383;*/
-  color: #000;
-}
-
-.navigation li a.active {
-  background: rgb(129, 187, 242);
-  color: #000;
-}
-
-#identifier {
-  float:right;
-  font-size:0.9em;
-  color:white;
-  padding:5px;
-}
-
-#content
-{
-  clear: left;
-  padding: 20px;
-  text-align:justify;
-  position:relative;
-  font-size: 1.05em;
-}
-
-#content img
-{
-  padding:5px;
-  margin:10px;
-  /*border:1px solid rgb(221,221,221);
-  background-color: rgb(243,243,243);
-  border-radius: 3px 3px 3px 3px;*/
-}
-
-#content a
+/*.starter-template a
 {
   color:rgb(68, 119, 255);
   text-decoration: none;
-}
+}*/
 
-#content a:hover
+.starter-template a:hover
 {
   text-decoration: underline;
   color:green;
 }
 
-#content a.external:hover
+.starter-template a.external:hover
 {
   text-decoration: underline;
   color:red;
 }
 
-#content h2
-{
-  color: #000;
-  font-size: 160%;
-  margin: 0 0 .5em;
+.footer {
+  /*position: absolute;
+  bottom: 0;*/
+  width: 100%;
+  /* Set the fixed height of the footer here */
+  /* height: 60px; */
+  background-color: #f5f5f5;
 }
 
-#content hr {
-  border:none;
-  color:black;
-  background-color:#000;
-  height:2px; 
-  margin-top:2ex;
+.preview {
+  margin: 10px;
+  padding: 5px;
+  border: 1px solid rgb(221,221,221);
+  background-color: lightyellow;
+}
+
+.diff {
+  padding-left: 5%;
+  padding-right: 5%;
 }
 
 #markup-help
@@ -3584,96 +3611,21 @@ pre
   font-weight: bold;
 }
 
-#footer
+#markup-help dd
 {
-  /*background: #ccc;
-  text-align: right;*/
-  background:rgb(230, 234, 240); /*rgb(243,243,243);*/
-  border:1px solid rgb(221,221,221);
-  padding: 15px;
-  height: 1%;
-  clear:left;
+  margin-left: 20px;
 }
 
-#mtime {
-  color:gray;
-  font-size:0.75em;
-  float:right;
-  font-style: italic;
-}
-
-#content .toc {
-  /*float:right;*/
-  background-color: rgb(230, 234, 240);
-  padding:5px;
-  margin:10px;
-  border: 1px solid rgb(221,221,221);
-  border-radius: 3px 3px 3px 3px;
-  /*font-size:0.9em;*/
-  position:absolute;
-  top:0;
-  right:0;
-}
-
-textarea {
-  border-color:black;
-  border-style:solid;
-  border-width:thin;
-  padding: 3px;
-  width: 100%;
-}
-
-input {
-  border-color:black;
-  border-style:solid;
-  border-width:thin;
-  padding: 3px;
-}
-
-.preview {
-  margin: 10px;
-  padding: 5px;
-  border: 1px solid rgb(221,221,221);
-  background-color: lightyellow;
-}
-
-.diff {
-  padding-left: 5%;
-  padding-right: 5%;
-}
-
-.old {
-  background-color: lightpink;
-}
-
-.new {
-  background-color: lightgreen;
-}
-
-.admin {
-  background-color: #333;
-  width:250px;
-  /*position: relative;
-  float: left;*/
-}
-
-.admin ul {
-  margin: 0;
-  padding: 0;
-  list-style-type: none;
-}
-
-.admin ul li a {
-  text-decoration: none;
-  color: white !important;
+img {
   padding: 10px;
-  /*background-color: #47F;*/
-  display: block;
-  border-bottom: 1px solid #fff;
 }
 
-.admin ul li.current a, .admin ul li a:hover {
-  color: #000 !important;
-  background-color: rgb(129,187,242);
-  text-decoration: none !important;
+@media print {
+  .page-header a:link:after, .page-header a:visited:after {
+    content: "";
+  }
+}
+
+.page-header h1 {
+  font-size: 24px;
 }
