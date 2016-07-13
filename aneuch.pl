@@ -1384,7 +1384,7 @@ sub DoEdit {
       print $q->submit(-name=>'whattodo', -value=>'Delete'), " ";
       print $q->submit(-name=>'whattodo', -value=>'Cancel');
     }
-    print "</p>".$q->endform;
+    print "</p>".$q->end_form;
     if(GetParam('upload')) {
       print $q->p($q->a({-href=>"$Url?do=edit;page=$Page;clear=1"}, 
 	"Convert this file to text"));
@@ -3076,12 +3076,15 @@ sub DoMaintDeletePages {
   }
   if(@files) {
     foreach my $file (@files) {
+      ($file) = ($file =~ /([a-zA-Z0-9._~#-]*)$/);
       my $archive = substr($file,0,1); $archive =~ tr/[a-z]/[A-Z]/;
+      ($archive) = ($archive =~ /^([A-Z0-9]{1})$/);
       unlink "$PageDir/$archive/$file";
       @archives = grep { /^$ArchiveDir\/$archive\/$file.\d+/ } 
 	glob("$ArchiveDir/$archive/$file.*");
       foreach (@archives) {
-	unlink $_;
+	$_ =~ /^([-\/\w.]+)$/;
+	unlink $1;
       }
       # Remove entries from rc.log
       chomp(my @rclines = FileToArray($RecentChangesLog));
