@@ -492,8 +492,20 @@ sub DoFooter {
     print <<EOF;
       </div> <!-- /starter-template -->
     </div> <!-- /container -->
-        <div class="container">
-          <ul class="nav nav-pills" role="tablist">
+
+    <nav class="navbar navbar-default">
+      <div class="container">
+	<div class="navbar-header">
+          <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#footernavbar" aria-expanded="false" aria-controls="navbar">
+            <span class="sr-only">Toggle navigation</span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </button>
+	  <span class="visible-xs navbar-brand">Page Actions</span>
+        </div>
+        <div id="footernavbar" class="collapse navbar-collapse">
+          <ul class="nav navbar-nav">
 EOF
     # If we want discussion pages
     if($DiscussPrefix) {
@@ -501,7 +513,11 @@ EOF
     }
     print <<EOF;
             <li>$EditText</li><li>$RevisionsText</li><li>$AdminText</li><li>$RandomText</li>
-          </ul></div>
+          </ul>
+	</div>
+      </div>
+    </div>
+  </nav>
 
     <footer class="footer">
       <div class="container">
@@ -2128,32 +2144,6 @@ sub DoAdminDashboard {
 }
 
 sub DoAdmin {
-  # Command? And can we run it?
-  #if($Page and $AdminActions{$Page}) {
-  #  if($Page eq 'password' or IsAdmin()) {
-  #    &{$AdminActions{$Page}};	# Execute it.
-  #    print $q->p(AdminLink('',"&larr; Admin Menu"));
-  #  }
-  #} else {
-  #  print '<p>You may:<ul><li><a href="'.$Url.
-  #  '?do=admin;page=password">Authenticate</a></li>';
-  #  if(IsAdmin()) {
-  #    my %al = reverse %AdminList;
-  #    foreach my $listitem (sort keys %al) {
-#	unless($listitem eq '') {
-#	  print $q->li(AdminLink($al{$listitem},$listitem));
-#	}
-  #    }
-  #  }
-  #  print '</ul></p>';
-  #  print '<p>This site has ' . Commify(scalar(ListAllPages())) . ' pages, '.
-  #    Commify(CountAllRevisions()).' revisions';
-  #  if($CountPageVisits) {
-  #    print ", and ".Commify(GetTotalViewCount()).' page views';
-  #  }
-  #  print ".</p>";
-  #}
-
   # Set default page
   if($Page eq 'admin') {
     $Page = (IsAdmin()) ? 'dashboard' : 'password';
@@ -2161,52 +2151,58 @@ sub DoAdmin {
 
   my $adminlink = "$Url?do=admin;page=";
 
-  # Set the description for lock action
-  # NOTE: The line below does nothing currently.
-  #$AdminList{'lock'} = (-f "$DataDir/lock") ? 'Unlock the site' : 'Lock the site';
-
-  #print '<div class="admin">';
-  #print '<table width=100%><tr valign=top><td class="admin">';
   print '<div class="row"><div class="col-sm-3">';
-  #print '<div class="dropdown theme-dropdown clearfix">';
-  #print '<a id="adminMenu" href="#" class="sr-only dropdown-toggle" data-toggle="dropdown" role="button" aria-haspopup="true" aria-expanded="false">Dropdown <span class="caret"></span></a>';
-  #print '<ul class="dropdown-menu" aria-labelledby="adminMenu">';
-  #print '<ul class="list-group">';
-  print '<div class="list-group">';
+  #print '<div class="list-group">';
+  print '<div class="sidebar-nav">';
+  print '<div class="navbar navbar-default" role="navigation">';
+  print <<EOF;
+	<div class="navbar-header">
+          <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".sidebar-navbar-collapse">
+            <span class="sr-only">Toggle navigation</span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </button>
+          <span class="visible-xs navbar-brand">Administration menu</span>
+        </div>
+        <div class="navbar-collapse collapse sidebar-navbar-collapse">
+          <ul class="nav navbar-nav">
+EOF
   if($Page eq 'password') {
-    #print $q->li({class=>'list-group-item active'},AdminLink('password','Authenticate'));
-    print $q->a({-class=>'list-group-item active', -href=>$adminlink.
-      'password'},"Authenticate");
+    print $q->li({class=>'active'},AdminLink('password','Authenticate'));
+    #print $q->a({-class=>'list-group-item active', -href=>$adminlink.
+    #  'password'},"Authenticate");
   } else {
-    #print $q->li({class=>'list-group-item'},AdminLink('password','Authenticate')) unless IsAdmin();
-    print $q->a({-class=>'list-group-item', -href=>$adminlink.'password'},
-      'Authenticate') unless IsAdmin();
+    print $q->li(AdminLink('password','Authenticate')) unless IsAdmin();
+    #print $q->a({-class=>'list-group-item', -href=>$adminlink.'password'},
+    #  'Authenticate') unless IsAdmin();
   }
   if(IsAdmin()) {
     if($Page eq 'dashboard') {
-      #print $q->li({class=>'list-group-item active'},AdminLink('dashboard','Dashboard'));
-      print $q->a({-class=>'list-group-item active', -href=>$adminlink.
-	'dashboard'}, 'Dashboard');
+      print $q->li({class=>'active'},AdminLink('dashboard','Dashboard'));
+      #print $q->a({-class=>'list-group-item active', -href=>$adminlink.
+	#'dashboard'}, 'Dashboard');
     } else {
-      #print $q->li({class=>'list-group-item'},AdminLink('dashboard','Dashboard'));
-      print $q->a({-class=>'list-group-item', -href=>$adminlink.'dashboard'},
-	'Dashboard');
+      print $q->li(AdminLink('dashboard','Dashboard'));
+      #print $q->a({-class=>'list-group-item', -href=>$adminlink.'dashboard'},
+	#'Dashboard');
     }
     my %al = reverse %AdminList;
     foreach my $listitem (sort keys %al) {
       next if $listitem eq '';
       if($Page eq $al{$listitem}) {
-	#print $q->li({class=>'list-group-item active'},AdminLink($al{$listitem},$listitem));
-	print $q->a({-class=>'list-group-item active', -href=>$adminlink.
-	  $al{$listitem}}, $listitem);
+	print $q->li({class=>'active'},AdminLink($al{$listitem},$listitem));
+	#print $q->a({-class=>'list-group-item active', -href=>$adminlink.
+	#  $al{$listitem}}, $listitem);
       } else {
-	#print $q->li({class=>'list-group-item'},AdminLink($al{$listitem},$listitem));
-	print $q->a({-class=>'list-group-item', -href=>$adminlink.
-	  $al{$listitem}}, $listitem);
+	print $q->li(AdminLink($al{$listitem},$listitem));
+	#print $q->a({-class=>'list-group-item', -href=>$adminlink.
+	#  $al{$listitem}}, $listitem);
       }
     }
   }
-  print '</div></div>';
+  print '</ul>';
+  print '</div></div></div></div>';
   #print '</div>'; #End of admin menu, now print page
   #print "</td><td style='padding-left:20px;'>";
   #print '<div style="padding-left:10px;">';
@@ -3631,4 +3627,26 @@ img {
 
 .page-header h1 {
   font-size: 24px;
+}
+
+/* make sidebar nav vertical */ 
+@media (min-width: 768px) {
+  .sidebar-nav .navbar .navbar-collapse {
+    padding: 0;
+    max-height: none;
+  }
+  .sidebar-nav .navbar ul {
+    float: none;
+  }
+  .sidebar-nav .navbar ul:not {
+    display: block;
+  }
+  .sidebar-nav .navbar li {
+    float: none;
+    display: block;
+  }
+  .sidebar-nav .navbar li a {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
 }
