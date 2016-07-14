@@ -21,6 +21,14 @@ sub DoSitemap {
   print '</urlset>';
 }
 
+sub DashboardSitemap {
+  print $q->h3('Sitemap');
+  print $q->p('A '.
+    $q->a({-href=>$Url.'sitemap.xml'},'sitemap.xml').
+    ' file is automatically generated any time it is requested.');
+}
+
+RegDashboardItem(\&DashboardSitemap);
 RegCommand('sitemap', \&DoSitemap, 'was downloading the sitemap');
 RegRawHandler('sitemap');
 if($Page eq 'sitemap.xml') { SetParam('do','sitemap'); }

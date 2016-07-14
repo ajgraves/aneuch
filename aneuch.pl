@@ -516,7 +516,6 @@ EOF
           </ul>
 	</div>
       </div>
-    </div>
   </nav>
 
     <footer class="footer">
@@ -642,7 +641,7 @@ sub MarkupImage {
     $return .= "alt=\"$alt\" ";
   }
   if($align) {
-    $return .= "align=\"$align\" ";
+    $return .= "class=\"pull-$align\" ";
   }
   $return .= "/>";
   return $return;
@@ -2035,18 +2034,35 @@ sub DoAdminPlugins {
   #    (defined $Plugins{$p} ? '(active)' : '(inactive)'));
   #}
   print $q->h3('Active');
-  print "<ul>";
-  foreach (@alist) {
-    print $q->li(AdminLink('plugins',$_,"plugin=$_",'act=disable').
-      ' - '.$Plugins{$_});
+  #print "<ul>";
+  print '<div class="list-group">';
+  foreach my $plugin (@alist) {
+    #print $q->li(AdminLink('plugins',$_,"plugin=$_",'act=disable').
+    #  ' - '.$Plugins{$_});
+    #print AdminLink('plugins',
+    #  '<h4 class="list-group-item-heading">'.$plugin.'</h4>'.
+    #  '<p class="list-group-item-text">'.$Plugins{$plugin}.'</p>',
+    #  "plugin=$plugin",'act=disable');
+    print $q->a({-href=>$Url.'?do=admin;page=plugins;plugin='.$plugin.
+      ';act=disable', -class=>'list-group-item', 
+      -title=>'Click to disable '.$plugin},
+      '<h4 class="list-group-item-heading">'.$plugin.'</h4>'.
+      '<p class="list-group-item-text">'.$Plugins{$plugin}.'</p>');
   }
-  print "</ul>";
+  #print "</ul>";
+  print '</div>';
   print $q->h3('Disabled');
-  print "<ul>";
-  foreach (@dlist) {
-    print $q->li(AdminLink('plugins',$_,"plugin=$_",'act=enable'));
+  #print "<ul>";
+  print '<div class="list-group">';
+  foreach my $plugin (@dlist) {
+    #print $q->li(AdminLink('plugins',$_,"plugin=$_",'act=enable'));
+    print $q->a({-href=>$Url.'?do=admin;page=plugins;plugin='.$plugin.
+      ';act=enable', -class=>'list-group-item', 
+      -title=>'Click to enable '.$plugin},
+      '<h4 class="list-group-item-heading">'.$plugin.'</h4>');
   }
-  print "</ul>";
+  #print "</ul>";
+  print '</div>';
 }
 
 sub DoAdminDeleted {
