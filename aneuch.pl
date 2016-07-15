@@ -51,7 +51,7 @@ our ($DataDir, $SiteName, $Page, $ShortPage, @Passwords, $PageDir, $ArchiveDir,
      $EditorLicenseText, $AdminText, $RandomText, $CountPageVisits,
      $PageVisitFile, $q, $Hostname, @RawHandlers, $UploadsAllowed, 
      @UploadTypes, %ShortCodes, %HTTPHeader, %CommandsDisplay,
-     $PurgeDeletedPage, $VERSIONID, @DashboardItems);
+     $PurgeDeletedPage, $VERSIONID, @DashboardItems, $CookieTime);
 
 my %srvr = (
   80 => 'http://',	443 => 'https://',
@@ -92,6 +92,7 @@ sub InitVars {
   $DiscussPrefix = 'Discuss_' unless defined $DiscussPrefix;
   $SiteName = 'Aneuch' unless $SiteName;	# Default site name
   $CookieName = 'Aneuch' unless $CookieName;	# Default cookie name
+  $CookieTime = 31556926 unless $CookieTime; # 1 year cookie expiration
   $TimeZone = 0 unless $TimeZone;		# Default to GMT, 1=localtime
   $LockExpire = 60*5 unless $LockExpire;	# 5 mins, unless set elsewhere
   $Debug = 0 unless $Debug;			# Assume no debug
@@ -1145,13 +1146,14 @@ sub ReadCookie {
 
 sub SetCookie {
   # Save user and pass to cookie
-  my ($user, $pass) = @_;
+  my ($user, $pass, $exp) = @_;
+  $exp ||= $CookieTime;  
   my $matchedpass = grep(/^$pass$/, @Passwords); # Did they provide right pass?
   my $cookie = $user if $user;		# Username first, if they gave it
   if($matchedpass and $user) {		# Need both...
     $cookie .= ':' . $pass;
   }
-  my $futime = gmtime($TimeStamp + 31556926)." GMT";	# Now + 1 year
+  my $futime = gmtime($TimeStamp + $exp)." GMT";	# Now + expiration time
   my $cookiepath = $ShortUrl;
   $cookiepath =~ s/$ShortScriptName\?//;
   $cookiepath =~ s/$ShortScriptName\///;
@@ -1189,6 +1191,8 @@ sub CanView {
   } else {
     # Check if we're requesting the password page
     if((GetParam('do') eq 'admin') and (GetParam('page') eq "password")) {
+      return 1;
+    } elsif(GetParam('doing') eq 'login') {
       return 1;
     } else {
       return 0;
