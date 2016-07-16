@@ -7,11 +7,24 @@ sub DoLinkPage {
   return unless IsAdmin();
   print $q->hr();
   print $q->p('Create a new link:');
-  print Form('pl_link','post',
-    "URL: ".$q->textfield(-name=>'url', -size=>50), $q->br(),
-    "Title: ".$q->textfield(-name=>'title', -size=>50), $q->br(),
-    "Description: ".$q->textfield(-name=>'description', -size=>50), $q->br(),
-    $q->submit(-value=>'Save')
+  print Form('pl_link','post','',
+    $q->div({-class=>'row'},
+      $q->div({-class=>'col-md-4'},
+	$q->div({-class=>'form-group'},
+	  $q->label({-for=>'url'},'URL: '),
+	  $q->textfield(-name=>'url', -class=>'form-control')
+	),
+	$q->div({-class=>'form-group'},
+	  $q->label({-for=>'title'},'Title: '),
+	  $q->textfield(-name=>'title', -class=>'form-control')
+        ),
+	$q->div({-class=>'form-group'},
+	  $q->label({-for=>'description',},'Description: '),
+	  $q->textfield(-name=>'description', -class=>'form-control')
+	),
+	$q->submit(-class=>'btn btn-default', -value=>'Save'),
+      )
+    )
   );
 }
 

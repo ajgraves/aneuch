@@ -21,11 +21,15 @@ sub DoPostingBookNotes {
 
 sub DoSCBookNote {
   return unless(CanEdit());
-  return Form('booknote','post',
-  $q->hidden(-name=>'file', -value=>$Page),
-  "Enter new notes below:<br/>",
-  $q->textarea(-name=>'note', -rows=>10, -cols=>100),
-  "<br/>".$q->submit('Note it!'));
+  return Form('booknote','post','',
+    $q->div({-class=>'form-group'},
+      $q->hidden(-name=>'file', -value=>$Page),
+      $q->label({-for=>'note'},"Enter new notes below:"),
+      $q->textarea(-name=>'note', -rows=>10, -cols=>100, 
+	-class=>'form-control')
+    ),
+    $q->submit(-class=>'btn btn-default', -value=>'Note it!')
+  );
 }
 
 RegPostAction('booknote', \&DoPostingBookNotes);

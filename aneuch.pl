@@ -464,7 +464,7 @@ EOF
       print " ondblclick=\"window.location.href='$Url?do=edit;page=$Page'\"";
     }
     print '>';
-    print '      <div class="starter-template">'.
+    print '      <div class="aneuch-content">'.
       '        <div class="page-header">'.
       '          <h1>';
     if(PageExists($Page)) {
@@ -491,7 +491,7 @@ sub DoFooter {
   if(!$Theme or !-d "$ThemeDir/$Theme") {
     # Default theme footer
     print <<EOF;
-      </div> <!-- /starter-template -->
+      </div> <!-- /aneuch-content -->
     </div> <!-- /container -->
 
     <nav class="navbar navbar-default">
@@ -1355,7 +1355,7 @@ sub DoEdit {
   if($canedit) {
     print RedHerringForm();
     # Template select
-    print StartForm('get');
+    print StartForm('get', '');
     print $q->hidden(-name=>'do', -value=>'edit');
     print $q->hidden(-name=>'page', -value=>$Page);
     print $q->p("Use template: ".
@@ -1752,10 +1752,18 @@ sub CommandDisplay {
 sub AdminForm {
   # Displays the admin login form
   my ($u,$p) = ReadCookie();
-  print Form('login','post',
-    "User: ".$q->textfield(-name=>'user',-value=>$u,-size=>20,-maxlength=>30),
-    " Pass: ".$q->password_field(-name=>'pass',-value=>$p,-size=>20),
-    " ".$q->submit(-value=>'Go'));
+  print Form('login','post','form-inline',
+    $q->div({-class=>'form-group'},
+      $q->label({-for=>'user'}, 'Username:'),
+      $q->textfield(-name=>'user',-value=>$u,-maxlength=>30,
+	-class=>'form-control')
+    ),
+    $q->div({-class=>'form-group'},
+      $q->label({-for=>'pass'}, 'Password:'),
+      $q->password_field(-name=>'pass',-value=>$p,-class=>'form-control'),
+    ),
+    $q->submit(-value=>'Go',-class=>'btn btn-default')
+  );
 }
 
 sub DoAdminPassword {
@@ -1853,10 +1861,14 @@ sub DoAdminListVisitors {
   if(GetParam('limit',0)) {
     $lim = GetParam('limit');
   }
-    print '<form method="get"><input type="hidden" name="do" value="admin"/>
-      <input type="hidden" name="page" value="visitors"/>
-      <input type="text" name="limit" size="40" value="'.$lim.'" />
-      <input type="submit" value="Search"/>';
+    print StartForm('get', 'form-inline').
+      $q->div({-class=>'form-group'},
+	$q->hidden(-name=>'do', -value=>'admin', -override=>1),
+	$q->hidden(-name=>'page', -value=>'visitors', -override=>1),
+	$q->textfield(-name=>'limit', -size=>40, -value=>$lim, 
+	  -class=>'form-control'),
+      ).
+      $q->submit(-class=>'btn btn-default', -value=>'Search');
   if($lim) {
     print " ".AdminLink('visitors',"Remove");
   }
@@ -1924,11 +1936,13 @@ sub DoAdminBlock {
   print "<p><strong>".
     Commify(scalar(grep { length($_) and $_ !~ /^#/ } @bl)).
     "</strong> user(s) blocked. Add an IP address, one per line, ".
-    "that you wish to block. Regular expressions are allowed (be careful!). ".
     "Lines that begin with '#' are considered comments and ignored.</p>";
-  print Form('blocklist','post',
-    $q->textarea(-name=>'blocklist', -rows=>30, -cols=>100, -default=>$blocked),
-    "<br/>", $q->submit('Save')
+  print Form('blocklist','post','',
+    $q->div({-class=>'form-group'},
+      $q->textarea(-name=>'blocklist', -rows=>30, -cols=>100, 
+	-default=>$blocked, -class=>'form-control')
+    ),
+    $q->submit(-class=>'btn btn-default', -value=>'Save')
   );
 }
 
@@ -1943,10 +1957,12 @@ sub DoAdminBannedContent {
     "by a non-administrative user that matches this content will immediately ".
     "be rejected as spam. Any line that begins with a '#' is considered ".
     "a comment, and will be ignored by the parser.</p>";
-  print Form('bannedcontent', 'post',
-    $q->textarea(-name=>'bannedcontent', -rows=>30, -cols=>100,
-      -default=>$content),"<br/>",
-    $q->submit('Save')
+  print Form('bannedcontent', 'post','',
+    $q->div({-class=>'form-group'},
+      $q->textarea(-name=>'bannedcontent', -rows=>30, -cols=>100,
+        -default=>$content, -class=>'form-control')
+    ),
+    $q->submit(-class=>'btn btn-default', -value=>'Save')
   );
 }
 
@@ -1970,9 +1986,12 @@ sub DoAdminCSS {
       print "This is the default CSS, and has not been modified.";
     }
     print "</p>";
-    print Form('css','post',
-      $q->textarea(-name=>'css', -rows=>30, -cols=>100, -default=>$content),
-      "<br/>", $q->submit('Save')
+    print Form('css','post','',
+      $q->div({-class=>'form-group'},
+	$q->textarea(-name=>'css', -rows=>30, -cols=>100, 
+	  -default=>$content, -class=>'form-control')
+      ),
+      $q->submit(-class=>'btn btn-default', -value=>'Save')
     );
   }
 }
@@ -1999,9 +2018,12 @@ sub DoAdminListTemplates {
 sub DoAdminRobotsTxt {
   my $content = FileToString("$DataDir/robots.txt");
   print $q->p("For more information about robots.txt, see <a href=\"http://www.robotstxt.org/\">http://www.robotstxt.org/</a>");
-  print Form('robotstxt', 'post',
-    $q->textarea(-name=>'robotstxt', -rows=>30, -cols=>100, -default=>$content),
-    "<br/>", $q->submit('Save')
+  print Form('robotstxt', 'post','',
+    $q->div({-class=>'form-group'},
+      $q->textarea(-name=>'robotstxt', -rows=>30, -cols=>100, 
+	-default=>$content, -class=>'form-control')
+    ),
+    $q->submit(-class=>'btn btn-default', -value=>'Save')
   );
 }
 
@@ -2114,10 +2136,13 @@ sub DashboardDatabase {
     AdminLink('files',Commify(scalar(ListAllFiles()))." uploaded files").
     ' and '.AdminLink('templates',
       Commify(scalar(ListAllTemplates()))." templates").".");
-  print Form('quickedit', 'post',
-    "Quick edit page: ",
-    $q->textfield(-name=>'thepage', -size=>30), "&nbsp;",
-    $q->submit(-value=>'Create/Edit'));
+  print Form('quickedit', 'post', 'form-inline',
+    $q->div({-class=>'form-group'},
+      $q->label({-for=>'thepage'},"Quick edit page:"),
+      $q->textfield(-name=>'thepage',-size=>'30',-class=>'form-control')
+    ),
+    $q->submit(-value=>'Create/Edit',-class=>'btn btn-default')
+  );
 }
 
 sub DashboardBannedContent {
@@ -2151,10 +2176,10 @@ sub DoAdminDashboard {
   print "<p>You are currently authenticated as '$u' and ".
     ((IsAdmin()) ? 'are' : 'are not').
     " an administrator.</p>";
-  print Form('login','post',
+  print Form('login','post', 'form-inline',
     $q->hidden(-name=>'user', -value=>$u).
     $q->hidden(-name=>'pass', -value=>'').
-    $q->submit(-value=>'Log out')
+    $q->submit(-class=>'btn btn-danger', -value=>'Log out')
   );
 
   # Do dashboard items
@@ -2261,18 +2286,20 @@ sub RedHerringForm {
 }
 
 sub StartForm {
-  my $method = shift;
+  my ($method, $class) = @_;
   $method ||= 'post';
-  return $q->start_multipart_form(-method=>$method, -action=>$ScriptName);
+  $class ||= '';
+  return $q->start_multipart_form(-method=>$method, -action=>$ScriptName,
+    -role=>'form', -class=>$class);
 }
 
 sub Form {
-  my ($doing, $method, @elements) = @_;
+  my ($doing, $method, $class, @elements) = @_;
   my $return;
-  $return = StartForm($method);
+  $return = StartForm($method, $class);
   $return .= $q->hidden(-name=>'doing', -value=>$doing);
   foreach (@elements) {
-    $return .= $_;
+    $return .= $_ . "\n";
   }
   $return .= "</form>";
   return $return;
@@ -2291,9 +2318,14 @@ sub AntiSpam {
     return;			#  0 if there are 0 elements, which with the
   } else {			#  '!' used here, will match and exit.
     my $question = (keys %QuestionAnswer)[rand keys %QuestionAnswer];
-    return $q->hidden(-name=>'session',
-      -value=>unpack("%32W*", $question) % 65535).$q->br.$q->br.
-      "$question&nbsp;".$q->textfield(-name=>'answer', -size=>'30').'&nbsp;';
+    #return $q->hidden(-name=>'session',
+    #  -value=>unpack("%32W*", $question) % 65535).$q->br.$q->br.
+    #  "$question&nbsp;".$q->textfield(-name=>'answer', -size=>'30').'&nbsp;';
+    return $q->div({-class=>'form-group'},
+      $q->hidden(-name=>'session', -value=>unpack("%32W*", $question) % 65535),
+      $q->label({-for=>'answer'}, $question),
+      $q->textfield(-name=>'answer', -size=>30, -class=>'form-control')
+    );
   }
 }
 
@@ -2360,22 +2392,44 @@ sub DoDiscuss {
       unlink "$TempDir/$Page.$UserIP";
     } else {
       $newtext = UnquoteHTML(FileToString("$TempDir/$Page.$UserIP"));
-      print "<div class=\"preview\">".Markup($newtext)."</div>";
+      #print "<div class=\"preview\">".Markup($newtext)."</div>";
+      print $q->div({-class=>'alert alert-warning'},Markup($newtext));
       my @ta = split(/\n\n/,$newtext); pop @ta;
       $newtext = join("\n\n", @ta);
     }
   }
   print RedHerringForm();
-  print "<p id=\"discuss-form\"></p><form action='$ScriptName' method='post'>
-    <input type='hidden' name='doing' value='discuss' />
-    <input type='hidden' name='file' value='$Page' />
-    <textarea name='text' style='width:100%;' placeholder='$NewComment'"; 
-    print" cols='80' rows='10'>$newtext</textarea><br/><br/>
-    Name: <input type='text' name='uname' size='30' value='$UserName' /> 
-    URL (optional): <input type='text' name='url' size='50' />";
-  print AntiSpam();
-  print " <input type='submit' name='whattodo' value='Save' />
-    <input type='submit' name='whattodo' value='Preview' /></form>";
+  #print "<p id=\"discuss-form\"></p><form action='$ScriptName' method='post'>
+  #  <input type='hidden' name='doing' value='discuss' />
+  #  <input type='hidden' name='file' value='$Page' />
+  #  <textarea name='text' style='width:100%;' placeholder='$NewComment'"; 
+  #  print" cols='80' rows='10'>$newtext</textarea><br/><br/>
+  #  Name: <input type='text' name='uname' size='30' value='$UserName' /> 
+  #  URL (optional): <input type='text' name='url' size='50' />";
+  #print AntiSpam();
+  #print " <input type='submit' name='whattodo' value='Save' />
+  #  <input type='submit' name='whattodo' value='Preview' /></form>";
+
+  print Form('discuss', 'post', '',
+    $q->div({-class=>'form-group'},
+      $q->hidden(-name=>'file', -value=>$Page),
+      $q->textarea(-name=>'text', -placeholder=>$NewComment, -cols=>80, 
+	-rows=>10, -default=>$newtext, -class=>'form-control') 
+    ),
+    $q->div({-class=>'form-group'},
+      $q->label({-for=>'uname'},'Name: '),
+      $q->textfield(-name=>'uname', -size=>30, -value=>$UserName, 
+	-class=>'form-control')
+    ),
+    $q->div({-class=>'form-group'},
+      $q->label({-for=>'url'},'URL (optional): '),
+      $q->textfield(-name=>'url', -size=>50, -class=>'form-control')
+    ),
+    AntiSpam(),
+    $q->submit(-name=>'whattodo', -value=>'Save', -class=>'btn btn-default'),
+    $q->submit(-name=>'whattodo', -value=>'Preview', -class=>'btn btn-default')
+  );
+
   print '<script language="javascript" type="text/javascript">'.
     "function ShowHide() {
 	document.getElementById('discuss-help').style.display = (document.getElementById('discuss-help').style.display == 'none') ? 'block' : 'none';
@@ -2607,7 +2661,7 @@ sub DoSearch {
 sub SearchForm {
   my $ret;
   my $search = UnquoteHTML(GetParam('search',''));
-  $ret = StartForm('get').
+  $ret = StartForm('get', 'form-inline').
     $q->hidden(-name=>'do', -value=>'search', -override=>1).
     $q->textfield(-name=>'search', -size=>'40', -placeholder=>'Search',
       -value=>$search).
@@ -3528,7 +3582,7 @@ sub DoRequest {
 	#my $altsearch = ReplaceSpaces($search);
 	#$content =~ s!($search|$altsearch)!<span style="background: yellow;">$1</span>!gsi;
       #}
-      print $content;
+      print $q->div({-class=>'markup-content'},$content);
     }
     if($Filec{ts}) {
       $MTime = "Last modified: ".(FriendlyTime($Filec{ts}))[$TimeZone]." by ".
@@ -3564,31 +3618,35 @@ body {
   width: 97%;
 }
 
-.starter-template {
+.markup-content {
+  text-align: justify;
+}
+
+.aneuch-content {
   padding: 40px 15px;
   /*text-align: center;*/
-  text-align: justify;
+  /*text-align: justify;*/
   font-size: 1.1em;
 }
 
-.starter-template textarea {
+/*.aneuch-content textarea {
   padding: 3px;
   width: 100%;
-}
+}*/
 
-/*.starter-template a
+/*.aneuch-content a
 {
   color:rgb(68, 119, 255);
   text-decoration: none;
 }*/
 
-.starter-template a:hover
+.markup-content a:hover
 {
   text-decoration: underline;
   color:green;
 }
 
-.starter-template a.external:hover
+.markup-content a.external:hover
 {
   text-decoration: underline;
   color:red;
