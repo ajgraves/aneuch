@@ -73,7 +73,7 @@ sub DoPostingSnippet {
 }
 
 sub InitSnippetPlugin {
-  if(!-f "$DataDir/snippets") {
+  if(!-f "$SnippetDB") {
     StringToFile('',$SnippetDB);
   }
 }
