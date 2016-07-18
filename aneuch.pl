@@ -448,11 +448,13 @@ EOF
             </ul></li>
           </ul>
           <form action="$Url" method="get" class="navbar-form navbar-right">
-            <div class="form-group">
+            <div class="input-group">
               <input type="hidden" name="do" value="search">
               <input type="text" placeholder="Search" name="search" value="$search" class="form-control">
-            </div>
-            <button type="submit" class="btn btn-success">Search</button>
+	    <span class="input-group-btn">
+	      <button type="submit" class="btn btn-success">Search</button>
+	    </span>
+	    </div>
           </form>
         </div><!--/.nav-collapse -->
       </div>
@@ -599,12 +601,12 @@ sub MarkupBuildLink {
   } else {			# Internal link!
     my $testhref = (split(/#/,$href))[0];
     $testhref = (split(/\?/,$testhref))[0];
-    if((PageExists(SanitizeFileName($testhref))) or ($testhref =~ m/^\?/)
-     or (SanitizeFileName($testhref) =~ m/^$DiscussPrefix/)
+    if((PageExists(ReplaceSpaces($testhref))) or ($testhref =~ m/^\?/)
+     or (ReplaceSpaces($testhref) =~ m/^$DiscussPrefix/)
      or ($testhref =~ m/^$url/) or ($testhref eq '') or (!CanEdit())) {
       $return = "<a title='".ReplaceSpaces($href)."' href='";
       if(($href !~ m/^$url/) and ($href !~ m/^[#\?]/)) {
-	$return .= $Url.SanitizeFileName($href);
+	$return .= $Url.ReplaceSpaces($href);
       } else {
 	$return .= $href;
       }
@@ -1355,55 +1357,102 @@ sub DoEdit {
   if($canedit) {
     print RedHerringForm();
     # Template select
-    print StartForm('get', '');
-    print $q->hidden(-name=>'do', -value=>'edit');
-    print $q->hidden(-name=>'page', -value=>$Page);
-    print $q->p("Use template: ".
-      $q->popup_menu(-name=>'use_template', -values=>\@templates,
-        -onchange=>'this.form.submit()'));
-    print $q->hidden(-name=>'clear', -value=>1);
-    print "</form>";
+    print StartForm('get', '').
+      $q->div({-class=>'row'}, $q->div({-class=>'col-md-3'},
+      $q->div({-class=>'form-group'},
+	$q->hidden(-name=>'do', -value=>'edit'),
+	$q->hidden(-name=>'page', -value=>$Page),
+	$q->label({-for=>'use_templates'},'Use template: '),
+	$q->popup_menu(-name=>'use_template', -values=>\@templates,
+	  -onchange=>'this.form.submit()', -class=>'form-control'),
+	$q->hidden(-name=>'clear', -value=>1)
+      )));
+    print $q->end_form();
+  }
+
+  # This has to be done outside of the if($canedit) otherwise it won't be
+  #  there for non-editing users.
+  print '<div class="form-group">';
+  #  '<div class="row">',
+  #    '<div class="col-md-12">';
+
+  if($canedit) {
     # Main edit form
     print StartForm();
     my $doing = (GetParam('upload')) ? 'upload' : 'editing';
-    print $q->hidden(-name=>'doing', -value=>$doing);
-    print $q->hidden(-name=>'file', -value=>$Page);
-    print $q->hidden(-name=>'revision', -value=>$revision);
+    print $q->hidden(-name=>'doing', -value=>$doing),
+	  $q->hidden(-name=>'file', -value=>$Page),
+	  $q->hidden(-name=>'revision', -value=>$revision);
     if(-f "$PageDir/$ShortDir/$Page") {
       print $q->hidden(-name=>'mtime', -value=>(stat("$PageDir/$ShortDir/$Page"))[9]);
     }
   }
   if(GetParam('upload')) {
     print $q->p("File to upload: ".$q->filefield(-name=>'fileupload',
-      -size=>50, -maxlength=>100, -style=>"border:none;"));
+      -size=>50, -maxlength=>100, -class=>"form-control"));
   } else {
     print $q->textarea(-name=>'text', -cols=>'100', -rows=>'25',
-      -style=>'width:100%', -default=>$contents);
+      -class=>'form-control', -default=>$contents);
   }
+  print '</div>'; # /col-md-12
+  #  '</div>'.     # /row
+  #  '</div>';     # /form-group
+
   # For templates
-  print $q->checkbox(-name=>'template', -checked=>$template, -value=>'1',
-    -label=>'Is this page a template?',
-    -title=>'Check this to save this page as a template');
+  print $q->div({-class=>'form-group'},
+    #$q->div({-class=>'row'},
+    #  $q->div({-class=>'col-md-12'},
+	$q->checkbox(-name=>'template', -checked=>$template, -value=>'1',
+	  -label=>'Is this page a template?',
+	  -title=>'Check this to save this page as a template',
+	  -class=>'form-control')
+	#)
+      #)
+    );
 
   if($canedit) {
     # Set a lock
     if($preview or SetLock()) {
-      print $q->p("Summary:<br/>".$q->textarea(-name=>'summary',
-	-cols=>'100', -rows=>'2', -style=>'width:100%;',
-	-placeholder=>'Edit summary (required)', -default=>$summary));
-      print '<p>User name: '.$q->textfield(-name=>'uname',
-	-size=>'30', -value=>$UserName)." ";
-      print AntiSpam();
+
+      print $q->div({-class=>'form-group'},
+	#$q->div({-class=>'row'},
+	#  $q->div({-class=>'col-md-12'},
+	    $q->label({-for=>'summary'},"Summary:"),
+	    $q->textarea(-name=>'summary',
+	      -cols=>'100', -rows=>'2', -class=>'form-control',
+	      -placeholder=>'Edit summary (required)', -default=>$summary)
+	#  )
+	#)
+      );
+
+      print $q->div({-class=>'form-group'},
+        #$q->div({-class=>'row'},
+	#  $q->div({-class=>'col-md-4'},
+	    $q->label({-for=>'uname'},"User name:"),
+	    $q->textfield(-name=>'uname',-size=>'30', -value=>$UserName, 
+	      -class=>'form-control')
+	  #),
+      );
+      print $q->div({-class=>'form-group'},
+	  #$q->div({-class=>'col-md-4'},
+	    AntiSpam()
+	  #),
+      );
+      print '<div class="form-group">';
+	  #$q->div({-class=>'col-md-4'},
+	  #  $q->div({-class=>'btn-group'},
       if(GetParam('upload')) {
-	print $q->submit(-name=>'whattodo', -value=>'Upload'), " ";
+	print $q->submit(-name=>'whattodo', -value=>'Upload', -class=>'btn btn-default').' ';
       } else {
-	print $q->submit(-name=>'whattodo', -value=>'Save'), " ";
-	print $q->submit(-name=>'whattodo', -value=>'Preview'), " ";
+	print $q->submit(-name=>'whattodo', -value=>'Save', -class=>'btn btn-default').' '.
+	$q->submit(-name=>'whattodo', -value=>'Preview', -class=>'btn btn-default').' ';
       }
-      print $q->submit(-name=>'whattodo', -value=>'Delete'), " ";
-      print $q->submit(-name=>'whattodo', -value=>'Cancel');
+      print $q->submit(-name=>'whattodo', -value=>'Delete', -class=>'btn btn-default'),
+	" ".$q->submit(-name=>'whattodo', -value=>'Cancel', -class=>'btn btn-default');
+      print '</div>';
     }
-    print "</p>".$q->end_form;
+
+    print $q->end_form;
     if(GetParam('upload')) {
       print $q->p($q->a({-href=>"$Url?do=edit;page=$Page;clear=1"}, 
 	"Convert this file to text"));
@@ -1862,13 +1911,16 @@ sub DoAdminListVisitors {
     $lim = GetParam('limit');
   }
     print StartForm('get', 'form-inline').
-      $q->div({-class=>'form-group'},
+      $q->div({-class=>'input-group'},
 	$q->hidden(-name=>'do', -value=>'admin', -override=>1),
 	$q->hidden(-name=>'page', -value=>'visitors', -override=>1),
 	$q->textfield(-name=>'limit', -size=>40, -value=>$lim, 
 	  -class=>'form-control'),
-      ).
-      $q->submit(-class=>'btn btn-default', -value=>'Search');
+	$q->span({-class=>'input-group-btn'},
+	  '<button type="submit" class="btn btn-default">Search</button>'
+	)
+      );
+      #$q->submit(-class=>'btn btn-default', -value=>'Search');
   if($lim) {
     print " ".AdminLink('visitors',"Remove");
   }
@@ -2032,6 +2084,7 @@ sub DoAdminPlugins {
   # Do we have an action and plugin?
   my $pi = GetParam('plugin');
   my $act = GetParam('act');
+  ($pi) = ($pi =~ /^([a-zA-Z0-9._~#-]*)$/);
   if($pi and $act) {
     if($act eq 'disable' and -f "$PluginDir/$pi") {
       rename "$PluginDir/$pi", "$PluginDir/$pi.disabled";
@@ -2062,7 +2115,7 @@ sub DoAdminPlugins {
   print $q->h3('Active');
   #print "<ul>";
   print '<div class="list-group">';
-  foreach my $plugin (@alist) {
+  foreach my $plugin (sort @alist) {
     #print $q->li(AdminLink('plugins',$_,"plugin=$_",'act=disable').
     #  ' - '.$Plugins{$_});
     #print AdminLink('plugins',
@@ -2080,7 +2133,7 @@ sub DoAdminPlugins {
   print $q->h3('Disabled');
   #print "<ul>";
   print '<div class="list-group">';
-  foreach my $plugin (@dlist) {
+  foreach my $plugin (sort @dlist) {
     #print $q->li(AdminLink('plugins',$_,"plugin=$_",'act=enable'));
     print $q->a({-href=>$Url.'?do=admin;page=plugins;plugin='.$plugin.
       ';act=enable', -class=>'list-group-item', 
@@ -2137,11 +2190,15 @@ sub DashboardDatabase {
     ' and '.AdminLink('templates',
       Commify(scalar(ListAllTemplates()))." templates").".");
   print Form('quickedit', 'post', 'form-inline',
-    $q->div({-class=>'form-group'},
-      $q->label({-for=>'thepage'},"Quick edit page:"),
-      $q->textfield(-name=>'thepage',-size=>'30',-class=>'form-control')
+    $q->div({-class=>'input-group'},
+      #$q->label({-for=>'thepage'},"Quick edit page:"),
+      $q->textfield(-name=>'thepage',-size=>'30',-class=>'form-control',
+	-placeholder=>'Enter page name'),
+      $q->span({-class=>'input-group-btn'},
+	'<button type="submit" class="btn btn-default">Create/Edit</button>'
+      )
     ),
-    $q->submit(-value=>'Create/Edit',-class=>'btn btn-default')
+    #$q->submit(-value=>'Create/Edit',-class=>'btn btn-default')
   );
 }
 
@@ -2874,7 +2931,10 @@ sub DoPostingEditing {
     if(GetParam('whattodo') eq "Cancel") {
       UnLock(GetParam('file'));
       my @tfiles = (glob("$TempDir/".GetParam('file').".*"));
-      foreach my $file (@tfiles) { unlink $file; }
+      foreach my $file (@tfiles) { 
+	($file) = ($file =~ /^([-\/\w.]+)$/);
+	unlink $file;
+      }
     } elsif(GetParam('whattodo') eq "Preview") {
       Preview(GetParam('file'));
       $redir = 1;

@@ -30,10 +30,15 @@ sub DoRandomPage {
   my $i;
   my $count = GetParam('count',20);
   if($count !~ /\d+/) { $count = 20; }
-  print '<form>';
-  print $q->textfield(-name=>'count', -placeholder=>'Enter a new count').'&nbsp;';
-  print '<button type="submit">Go!</button>';
-  print '</form>';
+  print '<form role="form" class="form-inline">'.
+    $q->div({-class=>'input-group'},
+      $q->textfield(-name=>'count', -placeholder=>'Enter a new count',
+	-class=>'form-control'),
+      $q->span({-class=>'input-group-btn'},
+	'<button type="submit" class="btn btn-default">Go!</button>'
+      )
+    ).
+    '</form>';
   print $q->p("Here are $count random pages for you to check out:");
   print '<ol>';
   for($i=0;$i<$count;$i++) {

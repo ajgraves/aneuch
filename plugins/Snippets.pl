@@ -1,4 +1,8 @@
 #!/usr/bin/perl
+## WARNING: This plugin is extremely powerful. Because it injects raw HTML
+##  into a page, this could easily lead to XSS and other vulnerabilities.
+##  By default, only an administrator can create a new snippet. This should
+##  be little comfort to you, however. Use this plugin with caution!
 package Aneuch;
 return unless $Aneuch::VERSIONID >= '0040';	# Require 0.40 or higher.
 RegPlugin('Snippets.pl', 'publish snippets of code for your wiki');

@@ -11,7 +11,10 @@ sub DoSitemap {
   foreach my $page (@pages) {
     #my %P = GetPage($page);
     my $archive = substr($page,0,1); $archive =~ tr/a-z/A-Z/;
+    ($archive) = ($archive =~ /^([0-9A-Z]{1})$/);
+    ($page) = ($page =~ /^([a-zA-Z0-9._~#-]*)$/);
     chomp(my $ts = `grep ^ts: $PageDir/$archive/$page | awk '{print \$2}'`);
+    ($ts) = ($ts =~ /^(\d+)$/);
     chomp(my $lastmod = `date -d \@$ts +%Y-%m-%d`);
     print "  <url>\n".
       "    <loc>$Url$page</loc>\n".
@@ -29,6 +32,6 @@ sub DashboardSitemap {
 }
 
 RegDashboardItem(\&DashboardSitemap);
-RegCommand('sitemap', \&DoSitemap, 'was downloading the sitemap');
+RegCommand('sitemap', \&DoSitemap, 'was getting <strong>sitemap.xml</strong>');
 RegRawHandler('sitemap');
 if($Page eq 'sitemap.xml') { SetParam('do','sitemap'); }
