@@ -637,7 +637,7 @@ sub MarkupImage {
   }
   my $return = '<img src="';
   if(PageExists(ReplaceSpaces($img))) {
-    $return .= "$Url?do=view;page=".ReplaceSpaces($img)."\" ";
+    $return .= "$Url".ReplaceSpaces($img)."?do=view\" ";
   } else {
     $return .= "$img\" ";
   }
