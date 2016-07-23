@@ -252,6 +252,7 @@ sub InitVars {
 
   # Set visitor IP address
   $UserIP = $q->remote_addr; #$ENV{'REMOTE_ADDR'};
+  ($UserIP) = ($UserIP =~ /^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
   ($UserName) = &ReadCookie;
   # Get the hostname
   eval 'use Socket; $Hostname = gethostbyaddr(inet_aton($UserIP), AF_INET);';
@@ -643,10 +644,11 @@ sub MarkupImage {
   if($alt) {
     $return .= "alt=\"$alt\" ";
   }
+  $return .= 'class="img-responsive';
   if($align) {
-    $return .= "class=\"pull-$align\" ";
+    $return .= " pull-$align";
   }
-  $return .= "/>";
+  $return .= '" />';
   return $return;
 }
 
@@ -1502,7 +1504,8 @@ sub UnLock {
   # Removed a page lock
   my $pg = $Page;
   ($pg) = @_ if @_ >= 1;
-  $pg =~ m/^([^\\\/]+)$/; $pg = $1;
+  #$pg =~ m/^([^\\\/]+)$/; $pg = $1;
+  ($pg) = ($pg =~ /^([a-zA-Z0-9._~#-]*)$/);
   if(-f "$TempDir/$pg.lock") {
     if(!unlink "$TempDir/$pg.lock") {
       push @Messages, "Unable to delete lock file $pg.lock: $!";
@@ -1882,7 +1885,8 @@ sub DoAdminRemoveLocks {
   my @files = glob("$TempDir/*.lock");
   s!^$TempDir/!! for @files;
   foreach (@files) {
-    $_ = m/^([^\\\/]+)$/; $_ = $1;
+    #$_ = m/^([^\\\/]+)$/; $_ = $1;
+    ($_) = ($_ =~ /^([a-zA-Z0-9._~#-]*)$/);
     unlink $TempDir.'/'.$_;
   }
   print "Removed the following locks:<br/>".join("<br/>",@files);
@@ -2444,6 +2448,7 @@ sub DoDiscuss {
   }
   # Check if a preview exists
   if(-f "$TempDir/$Page.$UserIP") {
+    ($Page) = ($Page =~ /^([a-zA-Z0-9._~#-]*)$/);
     # If the preview is older than 10 seconds, remove it and don't display it
     if((stat("$TempDir/$Page.$UserIP"))[9] < ($TimeStamp - 10)) {
       unlink "$TempDir/$Page.$UserIP";
@@ -3130,6 +3135,7 @@ sub DoMaintPurgeTemp {
   # Finally, walk though the file list and remove
   foreach my $file (@filelist) {
     if((stat($file))[9] <= $cutoff) {
+      ($file) = ($file =~ /^([-\/\w.]+)$/);
       unlink $file;
     }
   }
@@ -3164,7 +3170,10 @@ sub DoMaintPurgeOldRevs {
   my @files = glob("$ArchiveDir/*/*.*");
   # Walk through each file and remove if it's older...
   foreach my $f (@files) {
-    if((stat("$f"))[9] <= $RemoveTime) { unlink $f; }
+    if((stat("$f"))[9] <= $RemoveTime) { 
+      ($f) = ($f =~ /^([-\/\w.]+)$/);
+      unlink $f;
+    }
   }
 }
 
@@ -3679,7 +3688,7 @@ body {
 }
 
 .markup-content {
-  text-align: justify;
+  /*text-align: justify;*/
 }
 
 .aneuch-content {
