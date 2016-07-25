@@ -449,8 +449,8 @@ EOF
             </ul></li>
           </ul>
           <form action="$Url" method="get" class="navbar-form navbar-right">
+	    <input type="hidden" name="do" value="search">
             <div class="input-group">
-              <input type="hidden" name="do" value="search">
               <input type="text" placeholder="Search" name="search" value="$search" class="form-control">
 	    <span class="input-group-btn">
 	      <button type="submit" class="btn btn-success">Search</button>
@@ -1915,9 +1915,9 @@ sub DoAdminListVisitors {
     $lim = GetParam('limit');
   }
     print StartForm('get', 'form-inline').
+      $q->hidden(-name=>'do', -value=>'admin', -override=>1),
+      $q->hidden(-name=>'page', -value=>'visitors', -override=>1),
       $q->div({-class=>'input-group'},
-	$q->hidden(-name=>'do', -value=>'admin', -override=>1),
-	$q->hidden(-name=>'page', -value=>'visitors', -override=>1),
 	$q->textfield(-name=>'limit', -size=>40, -value=>$lim, 
 	  -class=>'form-control'),
 	$q->span({-class=>'input-group-btn'},
