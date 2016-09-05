@@ -190,7 +190,8 @@ sub InitVars {
     $Page = $DefaultPage;	# Default if blank
   }
   $PageName = $Page;		# PageName is Page with spaces
-  $PageName =~ s/_/ /g;		# Change underscore to space
+  #$PageName =~ s/_/ /g;		# Change underscore to space
+  $PageName = ReplaceUnderscores($PageName);
 
   $ShortDir = substr($Page,0,1);	# Get first letter
   $ShortDir =~ tr/[a-z]/[A-Z]/;		# Capitalize it
@@ -205,7 +206,7 @@ sub InitVars {
 	$DiscussLink = $Url . $DiscussPrefix . $Page;
 	$DiscussText = $DiscussPrefix;
 	$DiscussText =~ s/_/ /g;
-	$DiscussText .= $Page . " (".DiscussCount().")";
+	$DiscussText .= ReplaceUnderscores($Page) . " (".DiscussCount().")";
 	$DiscussText = '<a title="'.$DiscussText.'" href="'.$DiscussLink.'">'.
 	  $DiscussText.'</a>';
       } else {				# Is a discussion page
@@ -305,6 +306,9 @@ sub InitVars {
   RegCommand('view', \&DoView, 'viewed the file %s');
   # robots.txt support
   RegCommand('robotstxt', \&DoRobotsTxt, 'was getting %s');
+  # Remove revisions
+  RegCommand('rmrev', \&DoRemoveRevision, 
+    'was purging a revision of page %s');
 
   # Now register the admin actions (?do=admin;page= directives)
   # 'password' has to be set by itself, since technically there isn't a menu
@@ -448,15 +452,9 @@ EOF
     print <<EOF;
             </ul></li>
           </ul>
-          <form action="$Url" method="get" class="navbar-form navbar-right">
-	    <input type="hidden" name="do" value="search">
-            <div class="input-group">
-              <input type="text" placeholder="Search" name="search" value="$search" class="form-control">
-	    <span class="input-group-btn">
-	      <button type="submit" class="btn btn-success">Search</button>
-	    </span>
-	    </div>
-          </form>
+EOF
+    print SearchForm();
+    print <<EOF;
         </div><!--/.nav-collapse -->
       </div>
     </nav>
@@ -1353,7 +1351,15 @@ sub DoEdit {
   }
 
   if($preview) {
-    print $q->div({-class=>'alert alert-warning'},Markup($contents));
+    #print $q->div({-class=>'alert alert-warning'},Markup($contents));
+    print $q->div({-class=>'panel panel-primary'},
+      $q->div({-class=>'panel-heading'},
+	$q->h3({-class=>'panel-title'},'Preview')
+      ),
+      $q->div({-class=>'panel-body'},
+	$q->div({-class=>'markup-content'},Markup($contents))
+      )
+    );
   }
 
   if($canedit) {
@@ -1804,17 +1810,23 @@ sub CommandDisplay {
 sub AdminForm {
   # Displays the admin login form
   my ($u,$p) = ReadCookie();
-  print Form('login','post','form-inline',
-    $q->div({-class=>'form-group'},
-      $q->label({-for=>'user'}, 'Username:'),
-      $q->textfield(-name=>'user',-value=>$u,-maxlength=>30,
-	-class=>'form-control')
-    ),
-    $q->div({-class=>'form-group'},
-      $q->label({-for=>'pass'}, 'Password:'),
-      $q->password_field(-name=>'pass',-value=>$p,-class=>'form-control'),
-    ),
-    $q->submit(-value=>'Go',-class=>'btn btn-default')
+  print Form('login','post','',
+    $q->div({-class=>'row'},
+      $q->div({-class=>'col-md-3'},''),
+      $q->div({-class=>'col-md-6'},
+	$q->div({-class=>'form-group'},
+	  $q->label({-for=>'user'}, 'Username:'),
+	  $q->textfield(-name=>'user',-value=>$u,-maxlength=>30,
+	    -class=>'form-control')
+	),
+	$q->div({-class=>'form-group'},
+	  $q->label({-for=>'pass'}, 'Password:'),
+	  $q->password_field(-name=>'pass',-value=>$p,-class=>'form-control'),
+	),
+	$q->submit(-value=>'Go',-class=>'btn btn-default')
+      ),
+      $q->div({-class=>'col-md-3'},''),
+    )
   );
 }
 
@@ -1859,7 +1871,7 @@ sub DoAdminIndex {
   print "<h3>" . @indx . " pages found.</h3><p>";
   print "<ol>";
   foreach my $pg (@indx) {
-    print "<li>".$q->a({-href=>$Url.$pg}, $pg);
+    print "<li>".$q->a({-href=>$Url.$pg}, ReplaceUnderscores($pg));
     if($CountPageVisits) {
       print " <small><em>(".Commify(GetPageViewCount($pg))." views)</em></small>";
     }
@@ -1941,6 +1953,7 @@ sub DoAdminListVisitors {
     "<p style=\"text-align: left;\">";
   foreach my $entry (@lf) {
     my ($ip,$ts,$pg,$do,$revision,$status,$user) = split(/\t/,$entry);
+    $pg = ReplaceUnderscores($pg);
     my $date = YMD($ts);
     my $time = HMS($ts);
     if($curdate ne $date) {
@@ -2056,7 +2069,7 @@ sub DoAdminListFiles {
   print $q->p("Here is a list of pages that contain uploaded files:");
   print "<ul>";
   foreach (ListAllFiles()) {
-    print $q->li($q->a({-href=>$Url.$_}, $_));
+    print $q->li($q->a({-href=>$Url.$_}, ReplaceUnderscores($_)));
   }
   print "</ul>";
 }
@@ -2066,7 +2079,7 @@ sub DoAdminListTemplates {
   print $q->p("Here is a list of pages that are marked as templates:");
   print "<ul>";
   foreach (ListAllTemplates()) {
-    print $q->li($q->a({-href=>$Url.$_}, $_));
+    print $q->li($q->a({-href=>$Url.$_}, ReplaceUnderscores($_)));
   }
   print "</ul>";
 }
@@ -2257,6 +2270,7 @@ sub DoAdmin {
 
   my $adminlink = "$Url?do=admin;page=";
 
+  if(IsAdmin()) {
   print '<div class="row"><div class="col-sm-3">';
   #print '<div class="list-group">';
   print '<div class="sidebar-nav">';
@@ -2313,6 +2327,8 @@ EOF
   #print "</td><td style='padding-left:20px;'>";
   #print '<div style="padding-left:10px;">';
   print '<div class="col-sm-9">';
+  } # End of if IsAdmin block for menu
+
   if($Page and $AdminActions{$Page}) {
     if($Page eq 'password' or IsAdmin()) {
       &{$AdminActions{$Page}};
@@ -2321,7 +2337,9 @@ EOF
   #print '</div>';
   #print '<div style="clear:both;"></div>'; #End of admin
   #print '</td></tr></table>';
+  if(IsAdmin()) {
   print '</div></div>';
+  }
 }
 
 sub Init {
@@ -2540,7 +2558,7 @@ sub DoRecentChanges {
     }
     print "<li>$tme $tz (".
       CommandLink('history', $ent[1], 'history').") ";
-    print "<a href='$Url$ent[1]'>$ent[1]</a> . . . . ";
+    print "<a href='$Url$ent[1]'>".ReplaceUnderscores($ent[1])."</a> . . . . ";
     if(PageExists(ReplaceSpaces($ent[2]))) {
       print "<a href='$Url$ent[2]'>$ent[2]</a> &ndash; ";
     } else {
@@ -2624,6 +2642,20 @@ sub DoRobotsTxt {
   print $contents;
 }
 
+sub DoRemoveRevision {
+  my $revision = GetParam('revision',0);
+  if(!$revision) {
+    print $q->p('No revision passed');
+    return;
+  }
+  my $archive = substr($Page,0,1); $archive =~ tr/[a-z]/[A-Z]/;
+  if(!CanEdit()) {
+    print $q->p("You can't edit this item.");
+    return;
+  }
+
+}
+
 sub DoSearchShortCode {
   my $search = shift;
   my @searchextras;
@@ -2695,7 +2727,7 @@ sub DoSearch {
       }
       if($matchcount == 0) { $result{$fn} .= " . . . "; }
       my $res = QuoteHTML($1); 
-      $res =~ s#(.*?)($search|$altsearch)(.*?)#$1<strong>$2</strong>$3#gsi;
+      $res =~ s#(.*?)($search|$altsearch)(.*?)#$1<strong><mark>$2</mark></strong>$3#gsi;
       $result{$fn} .= "$res . . . ";
       $matchcount++;
     }
@@ -2703,7 +2735,9 @@ sub DoSearch {
   # Now sort them by value...
   my @keys = sort {length $result{$b} <=> length $result{$a}} keys %result;
   foreach my $key (@keys) {
-    print "<big><a href='$Url$key'>$key</a></big><br/>";
+    my $restitle = ReplaceUnderscores($key);
+    $restitle =~ s#(.*?)($search|$altsearch)(.*?)#$1<strong><mark>$2</mark></strong>$3#gsi;
+    print "<big><a href='$Url$key'>$restitle</a></big><br/>";
     if($showsummary) {
       print $result{$key}."<br/>";
     } else {
@@ -2723,11 +2757,20 @@ sub DoSearch {
 sub SearchForm {
   my $ret;
   my $search = UnquoteHTML(GetParam('search',''));
-  $ret = StartForm('get', 'form-inline').
-    $q->hidden(-name=>'do', -value=>'search', -override=>1).
-    $q->textfield(-name=>'search', -size=>'40', -placeholder=>'Search',
-      -value=>$search).
-    $q->submit(-value=>'Search').'</form>';
+  #$ret = StartForm('get', 'form-inline').
+  #  $q->hidden(-name=>'do', -value=>'search', -override=>1).
+  #  $q->textfield(-name=>'search', -size=>'40', -placeholder=>'Search',
+  #    -value=>$search).
+  #  $q->submit(-value=>'Search').'</form>';
+
+  $ret = '<form action="'.$Url.'" method="get" class="navbar-form navbar-right">'.
+    '<input type="hidden" name="do" value="search">'.
+    '<div class="input-group">'.
+    '<input type="text" placeholder="Search" name="search" value="'.$search.'" class="form-control">'.
+    '<span class="input-group-btn">'.
+    '<button type="submit" class="btn btn-success">Search</button>'.
+    '</span></div></form>';
+
   return $ret;
 }
 
@@ -2815,7 +2858,7 @@ sub DoHistory {
     print "<form action='$Url' method='get'>";
     print "<input type='hidden' name='do' value='diff' />";
     print "<input type='hidden' name='page' value='$Page' />";
-    print "<input type='submit' value='Compare' />";
+    print "<input type='submit' value='Compare' class='btn btn-info' />";
     print "<table><tr><td colspan='3'><strong>$currentday</strong></td></tr>";
     print "<tr valign='top'><td><input type='radio' name='v1' value='cur'>".
       "</td><td><input type='radio' name='v2' value='cur' checked></td>";
@@ -2852,14 +2895,19 @@ sub DoHistory {
 	  "value='$f{revision}'$topone></td><td><input type='radio' name='v2'".
 	  " value='$f{revision}'></td>";
 	if($topone) { $topone = ''; }
-	print "<td>".HM($f{ts})." ".
-	  "<input type=\"button\" onClick=\"location.href='$Url?do=".
+	print "<td>".HM($f{ts})." ";
+	if(CanEdit()) {
+	  print "<input type=\"button\" onClick=\"location.href='$Url?do=".
 	  "edit;page=$Page;revision=$f{revision};summary=".
 	  "Revert to Revision ".$f{revision}." (".
 	  (FriendlyTime($f{ts}))[$TimeZone].")'\" ".
-	  "value=\"Revert\"> ".
+	  "value=\"Revert\" class=\"btn btn-xs btn-warning\"> ".
+	  "<input type=\"button\" onClick=\"location.href='$Url?do=".
+	  "rmrev;page=$Page;revision=$f{revision}'\" value=\"Delete\" ".
+	  'class="btn btn-xs btn-danger"> '.
 	  CommandLink('',$Page,"Revision $f{revision}",
 	    "View revision $f{revision}","revision=$f{revision}");
+	}
 	if(PageExists(QuoteHTML($f{author}))) {
 	  print " . . . . <a href=\"$Url" . QuoteHTML($f{author}) . "\">".
 	    QuoteHTML($f{author}) . "</a>";
@@ -2869,7 +2917,7 @@ sub DoHistory {
         print " ($f{ip}) &ndash; " . QuoteHTML($f{summary}) . "</td></tr>";
       }
     }
-    print "</table><input type='submit' value='Compare'></form>";
+    print "</table><input type='submit' value='Compare' class='btn btn-info'/></form>";
   } else {
     print "<p>No log entries found.</p>";
   }
@@ -3442,6 +3490,12 @@ sub IsBlocked {
 sub ReplaceSpaces {
   my $replacetext = shift;
   $replacetext =~ s/\s/_/g;
+  return $replacetext;
+}
+
+sub ReplaceUnderscores {
+  my $replacetext = shift;
+  $replacetext =~ s/_/ /g;
   return $replacetext;
 }
 

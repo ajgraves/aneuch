@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 package Aneuch;
-return unless $Aneuch::VERSIONID >= '0050';     # Require 0.50 or higher.
+return unless $Aneuch::VERSIONID >= '0060';     # Require 0.60 or higher.
 RegPlugin('SCRandom.pl', 'Random page link shortcode');
 
 RegShortCode('random',\&DoShortCodeRandom);
@@ -23,7 +23,7 @@ sub DoShortCodeRandomDirect {
     $count = 1;
   }
   my $randompage = int(rand($count));
-  return $q->a({-href=>$Url.$files[$randompage], -title=>'randomly selected page'}, $files[$randompage]);
+  return $q->a({-href=>$Url.$files[$randompage], -title=>'randomly selected page'}, ReplaceUnderscores($files[$randompage]));
 }
 
 sub DoRandomPage {

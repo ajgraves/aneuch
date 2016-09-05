@@ -36,7 +36,8 @@ sub DoCommandCategory {
   print $q->p(scalar(@pages)." page(s) categorized as $category");
   foreach my $fn (@pages) {
     my %F = GetPage($fn);
-    print "<big><a href='${Url}${fn}'>$fn</a></big><br/>";
+    print "<big><a href='${Url}${fn}'>".ReplaceUnderscores($fn).
+      "</a></big><br/>";
     print "<small>Last modified ".
       (FriendlyTime($F{ts}))[$TimeZone]."</small><br/>";
     if(length($F{text}) > $CategorySummaryLength) {

@@ -87,7 +87,8 @@ sub DoCommandListNotes {
   foreach(@notes) {
     my $fn = $_;
     my %F = GetPage($fn);
-    print "<big><a href='${Url}${fn}'>$fn</a></big><br/>";
+    print "<big><a href='${Url}${fn}'>".ReplaceUnderscores($fn).
+      "</a></big><br/>";
     print "<small>Last modified ".
       (FriendlyTime($F{ts}))[$TimeZone]."</small><br/>";
     if(length($F{text}) > $NoteSummaryLength) {

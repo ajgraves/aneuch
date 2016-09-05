@@ -9,6 +9,10 @@ sub DoPostingBookNotes {
     ErrorPage(403,"You can't post notes. Sorry.");
     return;
   }
+  if(Trim(GetParam('note')) eq '') {
+    ReDirect($Url.SanitizeFileName(UnquoteHTML(GetParam('file',$DefaultPage))));
+    return;
+  }
   my $pn = SanitizeFileName(UnquoteHTML(GetParam('file')));
   SetParam('summary', "$UserName added notes about the book.");
   my %F = GetPage($pn);
@@ -21,14 +25,20 @@ sub DoPostingBookNotes {
 
 sub DoSCBookNote {
   return unless(CanEdit());
-  return Form('booknote','post','',
-    $q->div({-class=>'form-group'},
-      $q->hidden(-name=>'file', -value=>$Page),
-      $q->label({-for=>'note'},"Enter new notes below:"),
-      $q->textarea(-name=>'note', -rows=>10, -cols=>100, 
-	-class=>'form-control')
+  return $q->div({-class=>'panel panel-primary'},
+    $q->div({-class=>'panel-heading'},
+      $q->h3({-class=>'panel-title'},'Enter new notes')
     ),
-    $q->submit(-class=>'btn btn-default', -value=>'Note it!')
+    $q->div({-class=>'panel-body'},
+      Form('booknote','post','',
+	$q->div({-class=>'form-group'},
+	  $q->hidden(-name=>'file', -value=>$Page),
+	  $q->textarea(-name=>'note', -rows=>10, -cols=>100, 
+	    -class=>'form-control')
+        ),
+	$q->submit(-class=>'btn btn-default', -value=>'Note it!')
+      )
+    )
   );
 }
 
