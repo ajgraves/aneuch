@@ -212,7 +212,7 @@ sub InitVars {
       } else {				# Is a discussion page
 	$DiscussLink = $Page;
 	$DiscussLink =~ s/^$DiscussPrefix//;	# Strip discussion prefix
-	$DiscussText = $DiscussLink;
+	$DiscussText = ReplaceUnderscores($DiscussLink);
 	$DiscussLink = $Url . $DiscussLink;
 	$DiscussText = '<a title="Return to '.$DiscussText.'" href="'.
 	  $DiscussLink.'">'.$DiscussText.'</a>';
@@ -1452,11 +1452,11 @@ sub DoEdit {
       if(GetParam('upload')) {
 	print $q->submit(-name=>'whattodo', -value=>'Upload', -class=>'btn btn-default').' ';
       } else {
-	print $q->submit(-name=>'whattodo', -value=>'Save', -class=>'btn btn-default').' '.
-	$q->submit(-name=>'whattodo', -value=>'Preview', -class=>'btn btn-default').' ';
+	print $q->submit(-name=>'whattodo', -value=>'Save', -class=>'btn btn-success').' '.
+	$q->submit(-name=>'whattodo', -value=>'Preview', -class=>'btn btn-primary').' ';
       }
-      print $q->submit(-name=>'whattodo', -value=>'Delete', -class=>'btn btn-default'),
-	" ".$q->submit(-name=>'whattodo', -value=>'Cancel', -class=>'btn btn-default');
+      print $q->submit(-name=>'whattodo', -value=>'Delete', -class=>'btn btn-danger'),
+	" ".$q->submit(-name=>'whattodo', -value=>'Cancel', -class=>'btn btn-warning');
       print '</div>';
     }
 
@@ -1823,7 +1823,7 @@ sub AdminForm {
 	  $q->label({-for=>'pass'}, 'Password:'),
 	  $q->password_field(-name=>'pass',-value=>$p,-class=>'form-control'),
 	),
-	$q->submit(-value=>'Go',-class=>'btn btn-default')
+	$q->submit(-value=>'Go',-class=>'btn btn-success')
       ),
       $q->div({-class=>'col-md-3'},''),
     )
@@ -2212,7 +2212,7 @@ sub DashboardDatabase {
       $q->textfield(-name=>'thepage',-size=>'30',-class=>'form-control',
 	-placeholder=>'Enter page name'),
       $q->span({-class=>'input-group-btn'},
-	'<button type="submit" class="btn btn-default">Create/Edit</button>'
+	'<button type="submit" class="btn btn-primary">Create/Edit</button>'
       )
     ),
     #$q->submit(-value=>'Create/Edit',-class=>'btn btn-default')
@@ -3511,6 +3511,7 @@ sub ErrorPage {
   (my $code, my $message) = @_;
   my %codes = (
     400 => '400 Bad Request',
+    401 => '401 Unauthorized',
     403 => '403 Forbidden',
     404 => '404 Not Found',
     409 => '409 Conflict',
