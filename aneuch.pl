@@ -1812,20 +1812,27 @@ sub AdminForm {
   my ($u,$p) = ReadCookie();
   print Form('login','post','',
     $q->div({-class=>'row'},
-      $q->div({-class=>'col-md-3'},''),
-      $q->div({-class=>'col-md-6'},
-	$q->div({-class=>'form-group'},
-	  $q->label({-for=>'user'}, 'Username:'),
-	  $q->textfield(-name=>'user',-value=>$u,-maxlength=>30,
-	    -class=>'form-control')
+      $q->div({-class=>'col-md-4'},''),
+      $q->div({-class=>'col-md-4'},
+	$q->div({-class=>'panel panel-default'},
+	  $q->div({-class=>'panel-heading'},
+	    $q->h3({-class=>'panel-title'},'Login')
+	  ),
+	  $q->div({-class=>'panel-body'},
+	    $q->div({-class=>'form-group'},
+	    $q->label({-for=>'user'}, 'Username:'),
+	    $q->textfield(-name=>'user',-value=>$u,-maxlength=>30,
+	      -class=>'form-control')
+	    ),
+	    $q->div({-class=>'form-group'},
+	      $q->label({-for=>'pass'}, 'Password:'),
+	      $q->password_field(-name=>'pass',-value=>$p,-class=>'form-control'),
+	    ),
+	    $q->submit(-value=>'Go',-class=>'btn btn-success pull-right')
+          ),
 	),
-	$q->div({-class=>'form-group'},
-	  $q->label({-for=>'pass'}, 'Password:'),
-	  $q->password_field(-name=>'pass',-value=>$p,-class=>'form-control'),
-	),
-	$q->submit(-value=>'Go',-class=>'btn btn-success')
       ),
-      $q->div({-class=>'col-md-3'},''),
+      $q->div({-class=>'col-md-4'},''),
     )
   );
 }

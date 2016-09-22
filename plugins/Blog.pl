@@ -17,6 +17,8 @@ sub DoBlog {
   @blogpages = sort { $b cmp $a } @blogpages;
   @blogpages = @blogpages[$offset..$offset+$limit];
   #return join("<br/>",@blogpages);
+  if(CanEdit()) { $return .= DoBlogForm(); }
+
   foreach my $page (@blogpages) {
     next if not $page;
     my $pagename = $page; $pagename =~ s/^$BlogPattern//; $pagename =~ s/_/ /g;
@@ -27,13 +29,16 @@ sub DoBlog {
     }
     $return .= '<h3 id="'.SanitizeFileName($page).'">'.
       '<a href="'.$Url.$page.'">'.$pagename.'</a></h3>'.
-      '<small><em>Posted on '.$date.'</em></small><p></p>';
+      '<p><small><em>Posted on '.$date.'</em></small></p>';
       #'<small><em>'.(FriendlyTime($f{ts}))[$TimeZone].'</em></small>';
-    $return .= Markup($f{text});
+    $return .= $q->div({-class=>'panel panel-default'},
+      $q->div({-class=>'panel-body'},Markup($f{text}))
+    );
     if($DiscussPrefix) {
       $return .= "<p><a href=\"".$Url.$DiscussPrefix.$page."\">Discuss ".
-        $page." (".DiscussCount($page).")</a></p>";
+        ReplaceUnderscores($page)." (".DiscussCount($page).")</a></p>";
     }
+    $return .= $q->hr();
   }
   return $return;
 }
@@ -44,7 +49,7 @@ sub DoBlogForm {
       $q->textfield(-class=>'form-control', -name=>'title', -size=>'40',
         -placeholder=>'Enter blog title'),
       $q->span({-class=>'input-group-btn'},
-        '<button type="submit" class="btn btn-default">Create it!</button>')
+        '<button type="submit" class="btn btn-default">New entry</button>')
     )
   );
 }
