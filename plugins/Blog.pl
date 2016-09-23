@@ -17,7 +17,10 @@ sub DoBlog {
   @blogpages = sort { $b cmp $a } @blogpages;
   @blogpages = @blogpages[$offset..$offset+$limit];
   #return join("<br/>",@blogpages);
-  if(CanEdit()) { $return .= DoBlogForm(); }
+  if(CanEdit()) {
+    $return .= DoBlogForm();
+    $return .= $q->p();
+  }
 
   foreach my $page (@blogpages) {
     next if not $page;
@@ -27,18 +30,20 @@ sub DoBlog {
     if($page =~ m/^($BlogPattern)/) {
       $date = $1; $date =~ s/_{1,}$//;
     }
-    $return .= '<h3 id="'.SanitizeFileName($page).'">'.
-      '<a href="'.$Url.$page.'">'.$pagename.'</a></h3>'.
-      '<p><small><em>Posted on '.$date.'</em></small></p>';
-      #'<small><em>'.(FriendlyTime($f{ts}))[$TimeZone].'</em></small>';
     $return .= $q->div({-class=>'panel panel-default'},
-      $q->div({-class=>'panel-body'},Markup($f{text}))
+      $q->div({-class=>'panel-heading'},
+	$q->h3({-class=>'panel-title',-id=>SanitizeFileName($page)},
+	  $q->strong($q->a({-href=>$Url.$page},$pagename))
+	),
+	$q->small($q->em('Posted on '.$date))
+      ),
+      $q->div({-class=>'panel-body'},Markup($f{text})),
+      $q->div({-class=>'panel-footer'}, $q->small(
+	($DiscussPrefix) ? $q->a({-href=>$Url.$DiscussPrefix.$page},
+	  'Discuss '.ReplaceUnderscores($page).' ('.DiscussCount($page).')') :
+	  '')
+      )
     );
-    if($DiscussPrefix) {
-      $return .= "<p><a href=\"".$Url.$DiscussPrefix.$page."\">Discuss ".
-        ReplaceUnderscores($page)." (".DiscussCount($page).")</a></p>";
-    }
-    $return .= $q->hr();
   }
   return $return;
 }
