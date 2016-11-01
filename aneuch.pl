@@ -1150,7 +1150,11 @@ sub SetCookie {
   # Save user and pass to cookie
   my ($user, $pass, $exp) = @_;
   $exp ||= $CookieTime;  
-  my $matchedpass = grep(/^$pass$/, @Passwords); # Did they provide right pass?
+  #my $matchedpass = grep(/^$pass$/, @Passwords); # Did they provide right pass?
+  my $matchedpass = 0;
+  foreach my $p (@Passwords) {
+    if($pass eq $p) { $matchedpass = 1; }
+  }
   my $cookie = $user if $user;		# Username first, if they gave it
   if($matchedpass and $user) {		# Need both...
     $cookie .= ':' . $pass;
@@ -1170,14 +1174,23 @@ sub IsAdmin {
   if(@Passwords == 0) {		# If no password set...
     return 1;
   }
-  return scalar(grep(/^$p$/, @Passwords));
+  #return scalar(grep(/^$p$/, @Passwords));
+  my $matchedpass = 0;
+  foreach my $password (@Passwords) {
+    if($p eq $password) { $matchedpass = 1; }
+  }
+  return $matchedpass;
 }
 
 sub CanEdit {
   # If lock is set, return false automatically
   if(-f "$DataDir/lock") { return 0; }
   my ($u, $p) = ReadCookie();
-  my $matchedpass = grep(/^$p$/, @Passwords);
+  #my $matchedpass = grep(/^$p$/, @Passwords);a
+  my $matchedpass = 0;
+  foreach my $password (@Passwords) {
+    if($p eq $password) { $matchedpass = 1; }
+  }
   if($SiteMode == 0 or $matchedpass > 0) {
     return 1;
   } else {
