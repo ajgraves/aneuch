@@ -5,6 +5,7 @@ RegPlugin('Links.pl', 'Will add a form to page "Links" that makes maintaining a 
 
 sub DoLinkPage {
   return unless IsAdmin();
+  print $q->a({-name=>'bottom'});
   print $q->hr();
   print $q->p('Create a new link:');
   print Form('pl_link','post','',
