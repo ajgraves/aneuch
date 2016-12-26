@@ -1096,11 +1096,15 @@ sub GetTotalViewCount {
 
 sub SanitizeFileName {
   my $file = shift;
-  $file = ReplaceSpaces($file);
+  $file = ReplaceSpaces(Trim($file));
   # Remove double dots
   while($file =~ m/\.\./) {
     #$file =~ s/\/[^\/]*\/\.\.//;
     $file =~ s/\.+//;
+  }
+  # Remove leading underscores
+  while($file =~ m/^_/) {
+    $file =~ s/^_+//;
   }
   $file =~ s/[^a-zA-Z0-9._~#-]//g;
   return $file;
@@ -1760,7 +1764,7 @@ sub ListAllTemplates {
     push @templates, $1 if m#^$PageDir/.{1}/(.*)$#;
   }
   close($FL);
-  return @templates;
+  return sort @templates;
 }
 
 sub ListDeletedPages {
