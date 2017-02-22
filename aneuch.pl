@@ -2530,8 +2530,8 @@ sub DoDiscuss {
       $q->textfield(-name=>'url', -size=>50, -class=>'form-control')
     ),
     AntiSpam(),
-    $q->submit(-name=>'whattodo', -value=>'Save', -class=>'btn btn-default'),
-    $q->submit(-name=>'whattodo', -value=>'Preview', -class=>'btn btn-default')
+    $q->submit(-name=>'whattodo', -value=>'Save', -class=>'btn btn-success'),
+    $q->submit(-name=>'whattodo', -value=>'Preview', -class=>'btn btn-primary')
   );
 
   print '<script language="javascript" type="text/javascript">'.
