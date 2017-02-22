@@ -1,0 +1,24 @@
+#!/usr/bin/perl
+
+# Configuration
+# Domain should be set to whatever the root of your domain is, but it must be
+#  in regex format, i.e. '\.aneuch\.org$'
+my $domain = '';
+# configdir is the directory where your configuration files will live.
+my $configdir = './configs';
+# defaulthost is the default to use if none other is specified.
+my $defaulthost = 'www';
+
+# Execution, you shouldn't need to change anything below this line.
+my $host = $ENV{HTTP_HOST};
+$host =~ s/$domain//;
+
+if($host eq '') { $host = $defaulthost; }
+
+if(!-f "$configdir/$host.pl") {
+  ErrorPage(404, "That subdomain has not been configured in this wikifarm. ".
+    "Please contact the wikifarm administrator if you feel this is in error.");
+  exit 1;
+}
+
+do "$configdir/$host.pl";
