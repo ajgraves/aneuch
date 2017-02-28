@@ -3702,7 +3702,7 @@ sub DoRequest {
       if($rev and PageExists($Page, $rev)) {
 	print $q->p({-style=>"font-weight: bold;"}, 
 	  "You are viewing Revision $Filec{revision} of ".
-	  $q->a({-href=>"$Url$Page"}, $Page).$q->hr);
+	  $q->a({-href=>"$Url$Page", -title=>'View the newest version'}, $Page).$q->hr);
       }
       if($Filec{text} =~ m/^#FILE /) {
 	print $q->p("This page contains a file:");
