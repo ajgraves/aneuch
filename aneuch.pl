@@ -1,6 +1,6 @@
 #!/usr/bin/perl -wT
 ## **********************************************************************
-## Copyright (c) 2012-2016, Aaron J. Graves (cajunman4life@gmail.com)
+## Copyright (c) 2012-2017, Aaron J. Graves (cajunman4life@gmail.com)
 ## All rights reserved.
 ##
 ## Redistribution and use in source and binary forms, with or without 
