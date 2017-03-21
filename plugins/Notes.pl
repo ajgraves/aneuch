@@ -47,8 +47,10 @@ sub DoNoteEntryForm {
       $q->textarea(-name=>'note', -rows=>20, -cols=>100, -placeholder=>'Note',
 	-class=>'form-control')
     ),
-    $q->submit(-class=>'btn btn-default', -value=>'Note it!').
-      " ".CommandLink('listnotes',$Page,'List all saved notes')
+    $q->submit(-class=>'btn btn-success', -value=>'Note it!')." ".
+    $q->input({-type=>'button', -onClick=>
+      "location.href='${Url}${Page}?do=listnotes'", -class=>'btn btn-primary',
+      -value=>"List Notes"})
   );
 }
 
