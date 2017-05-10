@@ -585,6 +585,8 @@ sub MarkupBuildLink {
   } elsif($text =~ /^#/) {
     $text =~ s/^#+// if $same;
   }
+  # Unquote
+  $href = UnquoteHTML($href);
   if($href =~ m/^mailto:/i) { # Mailto link
     # If the test is the same as the href, we'll want to remove the leading
     #  mailto: portion of the link, so that it's relatively clean output.
@@ -3540,6 +3542,7 @@ sub ErrorPage {
     404 => '404 Not Found',
     409 => '409 Conflict',
     415 => '415 Unsupported Media Type',
+    429 => '429 Too Many Requests',
     500 => '500 Internal Server Error',
     501 => '501 Not Implemented',
     503 => '503 Service Unavailable',
@@ -3625,7 +3628,7 @@ sub DoRequest {
 
   # Surge protection
   if(DoSurgeProtection()) {
-    ErrorPage(503, "You've attempted to fetch more than $SurgeProtectionCount pages in $SurgeProtectionTime seconds.");
+    ErrorPage(429, "You've attempted to fetch more than $SurgeProtectionCount pages in $SurgeProtectionTime seconds.");
     return;
   }
 
