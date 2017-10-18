@@ -51,7 +51,7 @@ our ($DataDir, $SiteName, $Page, $ShortPage, @Passwords, $PageDir, $ArchiveDir,
      $EditorLicenseText, $AdminText, $RandomText, $CountPageVisits,
      $PageVisitFile, $q, $Hostname, @RawHandlers, $UploadsAllowed, 
      @UploadTypes, %ShortCodes, %HTTPHeader, %CommandsDisplay,
-     $PurgeDeletedPage, $VERSIONID, @DashboardItems, $CookieTime);
+     $PurgeDeletedPage, $VERSIONID, @DashboardItems, $CookieTime, $SpamLogging);
 
 my %srvr = (
   80 => 'http://',	443 => 'https://',
@@ -123,6 +123,8 @@ sub InitVars {
   @UploadTypes = qw(image/gif image/png image/jpeg) unless @UploadTypes;
   # Blog pattern
   $PurgeDeletedPage = 60*60*24*14 unless $PurgeDeletedPage; # > 2 weeks
+  # Spam logging
+  $SpamLogging = 0 unless $SpamLogging; # Off
 
   # Some cleanup
   #  Remove trailing slash from $DataDir, if it exists
@@ -333,6 +335,9 @@ sub InitVars {
   RegAdminPage('templates', "List template pages", \&DoAdminListTemplates);
   RegAdminPage('plugins', "Plugin manager", \&DoAdminPlugins);
   RegAdminPage('deleted', "List pending deleted pages", \&DoAdminDeleted);
+  if($SpamLogging) {
+    RegAdminPage('spamlog', "View spam log", \&DoAdminSpamLog);
+  }
 
   # Dashboard items
   RegDashboardItem(\&DashboardDatabase);
@@ -1629,6 +1634,7 @@ sub WriteDB {
   my $filename = shift;
   my %filedata = %{shift()};
   $filename =~ m/^(.*)$/; $filename = $1;
+  #open my($FILE), '>:encoding(UTF-8)', $filename or push @Messages,
   open my($FILE), '>', $filename or push @Messages,
     "WriteDB: Unable to write to $filename: $!";
   flock($FILE, LOCK_EX);	# Lock, exclusive
@@ -1755,6 +1761,7 @@ sub ListAllFiles {
     push @files, $1 if m#^$PageDir/.{1}/(.*)$#;
   }
   close($FL);
+  @files = sort @files;
   return @files;
 }
 
@@ -1766,7 +1773,8 @@ sub ListAllTemplates {
     push @templates, $1 if m#^$PageDir/.{1}/(.*)$#;
   }
   close($FL);
-  return sort @templates;
+  @templates = sort @templates;
+  return @templates;
 }
 
 sub ListDeletedPages {
@@ -2217,6 +2225,11 @@ sub DoAdminDeleted {
   print "</ul>";
 }
 
+sub DoAdminSpamLog {
+  # Shows the spam log if $SpamLogging is enabled.
+
+}
+
 sub DashboardDatabase {
   print $q->h3('Database Info');
   print "<p>There are currently ".
@@ -2230,8 +2243,9 @@ sub DashboardDatabase {
   print "</p>";
   print $q->p('There are '.
     AdminLink('files',Commify(scalar(ListAllFiles()))." uploaded files").
-    ' and '.AdminLink('templates',
-      Commify(scalar(ListAllTemplates()))." templates").".");
+    ' and '.
+    AdminLink('templates',Commify(scalar(ListAllTemplates()))." templates")."."
+  );
   print Form('quickedit', 'post', 'form-inline',
     $q->div({-class=>'input-group'},
       #$q->label({-for=>'thepage'},"Quick edit page:"),
@@ -3617,11 +3631,6 @@ sub AdminLink {
 sub DoRequest {
   # Blocked?
   if(IsBlocked()) {
-    #$HTTPStatus = "Status: 403 Forbidden\n";
-    #print $HTTPStatus . "Content-type: text/html\n\n";
-    #print '<html><head><title>403 Forbidden</title></head><body>'.
-    #  "<h1>Forbidden</h1><p>You've been banned. Please don't come back.</p>".
-    #  "</body></html>";
     ErrorPage(403, "You've been banned. Please don't come back.");
     return;
   }
@@ -3780,6 +3789,10 @@ body {
   font-size: 1.1em;
 }
 
+.aneuch-content blockquote {
+  font-size: 1em !important;
+}
+
 /*.aneuch-content textarea {
   padding: 3px;
   width: 100%;
@@ -3851,6 +3864,9 @@ img {
 @media print {
   .page-header a:link:after, .page-header a:visited:after {
     content: "";
+  }
+  .footer {
+    display: none !important;
   }
 }
 
