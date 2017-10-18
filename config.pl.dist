@@ -201,6 +201,14 @@ $UploadsAllowed = 0;
 #  around (in seconds). The default is 2 weeks, and is consdered a sane default.
 $PurgeDeletedPage = 60*60*24*14;
 
+# $SpamLogging - This variable controls if you want verbose spam logging.
+#  Turning this on will give you an insight into who triggered which spam
+#  rule. This could be interesting from a research perspective, or to help
+#  an administrator in troubleshooting a potential bad spam rule. The default
+#  value is 0, which means it is turned off and considered a sane default.
+#  Change the value to 1 to turn this feature on.
+$SpamLogging = 0;
+
 # $ConfFile - Note that this variable is optional. Aneuch will use the current
 #  directory that it resides in to find the configuration file. However, it
 #  will not look anywhere else if it does not find one there. Now obviously
