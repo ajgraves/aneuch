@@ -51,7 +51,8 @@ our ($DataDir, $SiteName, $Page, $ShortPage, @Passwords, $PageDir, $ArchiveDir,
      $EditorLicenseText, $AdminText, $RandomText, $CountPageVisits,
      $PageVisitFile, $q, $Hostname, @RawHandlers, $UploadsAllowed, 
      @UploadTypes, %ShortCodes, %HTTPHeader, %CommandsDisplay,
-     $PurgeDeletedPage, $VERSIONID, @DashboardItems, $CookieTime, $SpamLogging);
+     $PurgeDeletedPage, $VERSIONID, @DashboardItems, $CookieTime, $SpamLogging, 
+     %Prefs, $HasReadPrefs);
 
 my %srvr = (
   80 => 'http://',	443 => 'https://',
@@ -125,6 +126,8 @@ sub InitVars {
   $PurgeDeletedPage = 60*60*24*14 unless $PurgeDeletedPage; # > 2 weeks
   # Spam logging
   $SpamLogging = 0 unless $SpamLogging; # Off
+  # Have preferences been read? No, of course not.
+  $HasReadPrefs = 0;
 
   # Some cleanup
   #  Remove trailing slash from $DataDir, if it exists
@@ -407,12 +410,18 @@ sub DoHeader {
     <title>$PageName - $SiteName</title>
 
     <!-- Bootstrap -->
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFfwwEAa8hDDdjZlpLegxhjVME1fgjWPGmkzs7" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" 
+	integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css"
+	integrity="sha384-rHyoN1iRsVXV4nD0JutlnGaslCJuC7uwjduW9SVrLvRYooPp2bWYgmgJQIXwl/Sp" crossorigin="anonymous">
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" 
+	integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous">
+    </script>
 
     <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
     <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
     <!--[if lt IE 9]>
-      <script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+      <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
       <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
     <![endif]-->
     <style type="text/css">
@@ -855,7 +864,7 @@ sub Markup {
 sub MarkupHelp {
   # This sub will be called at the end of the edit form, and provides 
   #  assistance to the users for markup
-  print '<div id="markup-help"><dl>'.
+  print '<div class="well" id="markup-help"><dl>'.
     '<dt>Styling</dt><dd>**<strong>bold</strong>**, '.
     '//<em>italic</em>//, __<span style="text-decoration:underline">'.
     'underline</span>__, --<del>strikethrough</del>--, '.
@@ -1071,6 +1080,46 @@ sub GetParam {
 sub SetParam {
   my ($name, $value) = @_;
   $q->param($name, $value);
+}
+
+sub GetPrefs {
+  my ($prefix, $name) = @_;
+  if(!$HasReadPrefs) {
+    %Prefs = ReadDB($DataDir.'/preferences');
+    $HasReadPrefs = 1;
+  }
+  # Are we looking for the available namespace? If so, return the list.
+  if(($name == undef) or ($name eq '*') or ($name eq '')) {
+    my @allkeys = keys %Prefs;
+    my @ns = grep { $_ =~ /$prefix\./ } @allkeys;
+    # Remove the prefix from the namespace list.
+    s/^$prefix\.// for @ns;
+    return @ns;
+  } else {
+    # Otherwise return the one value.
+    return $Prefs{"$prefix.$name"};
+  }
+}
+
+sub SetPrefs {
+  my ($prefix, $name, $value) = @_;
+  if(!$HasReadPrefs) {
+    # Call GetPrefs on a random variable. We don't care what it is.
+    GetPrefs('Aneuch','Test');
+  }
+  $Prefs{"$prefix.$name"} = $value;
+  # Now save our changes
+  WriteDB($DataDir.'/preferences', \%Prefs);
+}
+
+sub DelPrefs {
+  my ($prefix, $name) = @_;
+  if(!$HasReadPrefs) {
+    # Call GetPrefs on a random variable. We don't care what it is.
+    GetPrefs('Aneuch','Test');
+  }
+  delete $Prefs{"$prefix.$name"};
+  WriteDB($DataDir.'/preferences', \%Prefs);
 }
 
 sub GetPage {
@@ -2101,21 +2150,29 @@ sub DoAdminCSS {
 
 sub DoAdminListFiles {
   print $q->p("Here is a list of pages that contain uploaded files:");
-  print "<ul>";
+  #print "<ul>";
+  print '<div class="list-group">';
   foreach (ListAllFiles()) {
-    print $q->li($q->a({-href=>$Url.$_}, ReplaceUnderscores($_)));
+    #print $q->li($q->a({-href=>$Url.$_}, ReplaceUnderscores($_)));
+    print $q->a({-href=>$Url.$_, -class=>'list-group-item',
+      -title=>$_}, ReplaceUnderscores($_));
   }
-  print "</ul>";
+  #print "</ul>";
+  print '</div>';
 }
 
 sub DoAdminListTemplates {
   # Get a list of templates
   print $q->p("Here is a list of pages that are marked as templates:");
-  print "<ul>";
+  #print "<ul>";
+  print '<div class="list-group">';
   foreach (ListAllTemplates()) {
-    print $q->li($q->a({-href=>$Url.$_}, ReplaceUnderscores($_)));
+    #print $q->li($q->a({-href=>$Url.$_}, ReplaceUnderscores($_)));
+    print $q->a({-href=>$Url.$_, -class=>'list-group-item',
+      -title=>$_}, ReplaceUnderscores($_));
   }
-  print "</ul>";
+  #print "</ul>";
+  print '</div>';
 }
 
 sub DoAdminRobotsTxt {
@@ -2458,10 +2515,23 @@ sub IsBannedContent {
     # If trailing comments...
     $c = (split("#",$c))[0];
     if(GetParam('text') =~ m/$c/i) {
-      return 1;
+      return $c;
     }
   }
   return 0;
+}
+
+sub WriteSpamLog {
+  my ($Event, $Data) = @_;
+  # Return if we're not logging spam events
+  return unless $SpamLogging;
+
+  # Build log entry
+  my $LogEntry = "$UserIP\t$TimeStamp\t$Page\t".GetParam('do','').
+    "\t$PageRevision\t$HTTPStatus\t$UserName\t$Event\t$Data";
+
+  # Now save it to the log
+  AppendStringToFile($LogEntry, "$DataDir/spam.log");
 }
 
 sub PassesSpamCheck {
@@ -2472,28 +2542,29 @@ sub PassesSpamCheck {
 
   if(IsAdmin()) { return 1; }	# If admin, assume passed.
   # Check BannedContent
-  if(IsBannedContent()) { return 0; }
+  my $bc = IsBannedContent();
+  if($bc) { WriteSpamLog('BannedContent', $bc); return 0; }
   # If there are no questions, assume passed
   if(!%QuestionAnswer) { return 1; }
   # If the form was sumbitted without "question" or if it wasn't defined, fail
-  if(!$session) {
-    return 0;
-  }
+  if(!$session) { WriteSpamLog('Session','Undefined'); return 0; }
   # If the form was submitted without the answer or it wasn't defined, fail
   if(!$answer or Trim($answer) eq '') {
+    WriteSpamLog('Answer','Missing/undefined');
     return 0;
   }
   # Check the answer against the question asked
   my %AnswerQuestions = reverse %QuestionAnswer;
   $answer = lc($answer);
   if((!exists $AnswerQuestions{$answer}) or (!defined $AnswerQuestions{$answer})) {
+    WriteSpamLog('QuestionAnswer','Missing/undefined/incorrect');
     return 0;
   }
   my $question = $AnswerQuestions{$answer};
   # "Checksum" of the question
   my $qcs = unpack("%32W*",$question) % 65535;
   # If checksum doesn't match, don't pass
-  if($qcs != $session) { return 0; }
+  if($qcs != $session) { WriteSpamLog('Checksum','Mismatch'); return 0; }
   # Nothing else? Return 1.
   return 1;
 }
@@ -3839,10 +3910,10 @@ body {
 
 #markup-help
 {
-  border: 1px solid #8CACBB;
+  /*border: 1px solid #8CACBB;
   background: #EEEEFF;
   padding: 10px;
-  margin-top: 20px;
+  margin-top: 20px;*/
   font-size: 0.9em;
   font-family: "Courier New", Courier, monospace;
 }
