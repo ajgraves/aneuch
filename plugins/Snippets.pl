@@ -4,7 +4,7 @@
 ##  By default, only an administrator can create a new snippet. This should
 ##  be little comfort to you, however. Use this plugin with caution!
 package Aneuch;
-return unless $Aneuch::VERSIONID >= '0040';	# Require 0.40 or higher.
+return unless $Aneuch::VERSIONID >= '0060';	# Require 0.60 or higher.
 RegPlugin('Snippets.pl', 'publish snippets of code for your wiki');
 my $SnippetDB = "$DataDir/snippets";
 
@@ -36,22 +36,29 @@ sub DoAdminSnippet {
 	$q->textarea(-name=>'snippetcode', -columns=>80, -rows=>20,
 	  -default=>$f{$snippet}, -class=>'form-control')
       ),
-      $q->submit(-class=>'btn btn-default', -value=>'Save'), " ",
-      AdminLink('snippet',"Back to snippets menu")
+      $q->submit(-class=>'btn btn-success', -value=>'Save'), " ",
+      #AdminLink('snippet',"Back to snippets menu")
+      $q->input({-type=>'button', -onClick=>
+	"location.href='$Url?do=admin;page=snippet'", 
+	-class=>'btn btn-primary', -value=>'Return to menu'})
     );
     return;
   }
   # Otherwise, main interface
   print $q->p("Here are your snippets:");
   my %db = ReadDB($SnippetDB);
-  print "<ul>";
+  #print "<ul>";
+  print '<div class="list-group">';
   foreach $snip (sort keys %db) {
     #print "<li><a href=\"$ShortURL?do=admin;page=snippet;snippet=$snip\">".
     #  "$snip</a></li>";
-    print $q->li(AdminLink('snippet',$snip,"snippet=$snip"));
+    #print $q->li(AdminLink('snippet',$snip,"snippet=$snip"));
+    print $q->a({-href=>$Url."?do=admin;page=snippet;snippet=$snip",
+      -class=>'list-group-item'}, $snip);
   }
-  print "</ul>";
-  print $q->button(-value=>'New Snippet', -class=>'btn btn-default',
+  #print "</ul>";
+  print '</div>';
+  print $q->button(-value=>'New Snippet', -class=>'btn btn-success',
     -onClick=>"location.href='$ShortUrl?do=admin;page=snippet;snippet=NEW'");
 }
 
