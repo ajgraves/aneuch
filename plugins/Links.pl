@@ -5,7 +5,8 @@ RegPlugin('Links.pl', 'Will add a form to page "Links" that makes maintaining a 
 
 sub DoLinkPage {
   return unless IsAdmin();
-  print $q->a({-name=>'bottom'});
+  #print $q->a({-name=>'bottom'});
+  print '<a name="bottom"></a>';
   print $q->hr();
   print $q->p('Create a new link:');
   print Form('pl_link','post','',
@@ -13,17 +14,20 @@ sub DoLinkPage {
       $q->div({-class=>'col-md-4'},
 	$q->div({-class=>'form-group'},
 	  $q->label({-for=>'url'},'URL: '),
-	  $q->textfield(-name=>'url', -class=>'form-control')
+	  $q->textfield(-name=>'url', -class=>'form-control',
+	    -placeholder=>'Enter the URL')
 	),
 	$q->div({-class=>'form-group'},
 	  $q->label({-for=>'title'},'Title: '),
-	  $q->textfield(-name=>'title', -class=>'form-control')
+	  $q->textfield(-name=>'title', -class=>'form-control',
+	    -placeholder=>'Enter the title of the link')
         ),
 	$q->div({-class=>'form-group'},
 	  $q->label({-for=>'description',},'Description: '),
-	  $q->textfield(-name=>'description', -class=>'form-control')
+	  $q->textfield(-name=>'description', -class=>'form-control',
+	    -placeholder=>'Provide a brief description of the link')
 	),
-	$q->submit(-class=>'btn btn-default', -value=>'Save'),
+	$q->submit(-class=>'btn btn-success', -value=>'Save'),
       )
     )
   );
