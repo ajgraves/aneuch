@@ -780,8 +780,8 @@ sub Markup {
     # HR
     $line =~ s#^-{4,}$#<hr/>#;
 
-    # <tt>
-    $line =~ s#\`{1}(.*?)\`{1}#<tt>$1</tt>#g;
+    # <tt>/<samp>
+    $line =~ s#\`{1}(.*?)\`{1}#<samp>$1</samp>#g;
 
     # NOTE: I changed the #s to #m on the next two, to match multi-line.
     #  However, multiline is impossible the way the markup engine currently
@@ -864,6 +864,12 @@ sub Markup {
 sub MarkupHelp {
   # This sub will be called at the end of the edit form, and provides 
   #  assistance to the users for markup
+
+  print '<br/><button type="button" class="btn btn-xs btn-info" data-toggle="collapse" '.
+    'data-target="#discuss-help">Show markup help</button>';
+  #print $q->div({-class=>'collapse', -id=>'discuss-help'}, MarkupHelp());
+  print '<div id="discuss-help" class="collapse">';
+
   print '<div class="well" id="markup-help"><dl>'.
     '<dt>Styling</dt><dd>**<strong>bold</strong>**, '.
     '//<em>italic</em>//, __<span style="text-decoration:underline">'.
@@ -879,6 +885,8 @@ sub MarkupHelp {
     '[[link|{{image.jpg}}]] (image linked to link), '.
     '{{image.jpg|alt text}}</dd>'.
     '<dt>Extras</dt><dd>---- (horizonal rule), ~~~~ (signature)</dd></div>';
+
+  print '</div>';
 }
 
 sub Commify {
@@ -976,7 +984,12 @@ sub IsSpecialPage {
 sub DoSpecialPage {
   return if GetParam('revision','');
   foreach my $spage (sort keys %SpecialPages) {
-    if($Page =~ m/^$spage$/) { &{$SpecialPages{$spage}}; return; }
+    if($Page =~ m/^$spage$/) {
+      print '<div class="markup-content">';
+      &{$SpecialPages{$spage}};
+      print '</div>';
+      return;
+    }
   }
 }
 
@@ -1089,7 +1102,7 @@ sub GetPrefs {
     $HasReadPrefs = 1;
   }
   # Are we looking for the available namespace? If so, return the list.
-  if(($name == undef) or ($name eq '*') or ($name eq '')) {
+  if(($name eq '*') or ($name eq '')) {
     my @allkeys = keys %Prefs;
     my @ns = grep { $_ =~ /$prefix\./ } @allkeys;
     # Remove the prefix from the namespace list.
@@ -1418,9 +1431,9 @@ sub DoEdit {
   print "</p>";
 
   if(IsSpecialPage($Page)) {
-    print $q->p($q->span({-style=>'color:red; font-style: italic;'},
+    print $q->div({-class=>'alert alert-warning'},
       "Note: This page is defined as a special page, ".
-      "and as such its final state may be different from what you see here."));
+      "and as such its final state may be different from what you see here.");
   }
 
   if($preview) {
@@ -1523,7 +1536,7 @@ sub DoEdit {
 	  #$q->div({-class=>'col-md-4'},
 	  #  $q->div({-class=>'btn-group'},
       if(GetParam('upload')) {
-	print $q->submit(-name=>'whattodo', -value=>'Upload', -class=>'btn btn-default').' ';
+	print $q->submit(-name=>'whattodo', -value=>'Upload', -class=>'btn btn-success').' ';
       } else {
 	print $q->submit(-name=>'whattodo', -value=>'Save', -class=>'btn btn-success').' '.
 	$q->submit(-name=>'whattodo', -value=>'Preview', -class=>'btn btn-primary').' ';
@@ -1996,10 +2009,14 @@ sub DoAdminClearVisits {
       print "Error while deleting visitors.log: $!";
     }
   } else {
-    print "<p>Are you sure you want to clear the visitor log? ".
-      "This cannot be undone.</p>";
-    print $q->p(AdminLink('clearvisits', "YES", 'confirm=yes')."&nbsp;&nbsp;".
-      $q->a({-href=>"javascript:history.go(-1)"},"NO"));
+    #print "<p>Are you sure you want to clear the visitor log? ".
+    #  "This cannot be undone.</p>";
+    #print $q->p(AdminLink('clearvisits', "YES", 'confirm=yes')."&nbsp;&nbsp;".
+    #  $q->a({-href=>"javascript:history.go(-1)"},"NO"));
+    Confirm('Are you sure you want to clear the visitor log? This cannot be undone.',
+      AdminURL('clearvisits', 'confirm=yes'),
+      AdminURL('clearvisits')
+    );
   }
 }
 
@@ -2072,13 +2089,16 @@ sub DoAdminLock {
       print $q->p("Site has been locked.");
     }
   } else {
+    my $msg;
     if(-f "$DataDir/lock") {
-      print $q->p("Are you sure you want to unlock the site?");
+      $msg = "Are you sure you want to unlock the site?";
     } else {
-      print $q->p("Are you sure you want to lock the site?");
+      $msg = "Are you sure you want to lock the site?";
     }
-    print $q->p(AdminLink('lock', "YES", 'confirm=yes')."&nbsp;&nbsp;".
-      $q->a({-href=>"javascript:history.go(-1)"},"NO"));
+    Confirm($msg,
+      AdminURL('lock', 'confirm=yes'),
+      AdminURL('lock')
+    );
   }
 }
 
@@ -2094,7 +2114,7 @@ sub DoAdminBlock {
       $q->textarea(-name=>'blocklist', -rows=>30, -cols=>100, 
 	-default=>$blocked, -class=>'form-control')
     ),
-    $q->submit(-class=>'btn btn-default', -value=>'Save')
+    $q->submit(-class=>'btn btn-success', -value=>'Save')
   );
 }
 
@@ -2114,7 +2134,7 @@ sub DoAdminBannedContent {
       $q->textarea(-name=>'bannedcontent', -rows=>30, -cols=>100,
         -default=>$content, -class=>'form-control')
     ),
-    $q->submit(-class=>'btn btn-default', -value=>'Save')
+    $q->submit(-class=>'btn btn-success', -value=>'Save')
   );
 }
 
@@ -2124,10 +2144,14 @@ sub DoAdminCSS {
       unlink "$DataDir/style.css";
       print "<p>Default stylesheet has been restored.</p>";
     } else {
-      print "<p>Are you sure you want to restore the default CSS? This cannot".
-	" be undone.</p>";
-      print $q->p(AdminLink('css','YES','action=restore','confirm=yes').
-	"&nbsp;&nbsp;".$q->a({-href=>'javascript:history.go(-1)'},"NO"));
+      #print "<p>Are you sure you want to restore the default CSS? This cannot".
+	#" be undone.</p>";
+      #print $q->p(AdminLink('css','YES','action=restore','confirm=yes').
+	#"&nbsp;&nbsp;".$q->a({-href=>'javascript:history.go(-1)'},"NO"));
+      Confirm('Are you sure you want to restore the default CSS? This cannot be undone.',
+	AdminURL('css','action=restore','confirm=yes'),
+	AdminURL('css')
+      );
     }
   } else {
     my $content = DoCSS();
@@ -2143,7 +2167,7 @@ sub DoAdminCSS {
 	$q->textarea(-name=>'css', -rows=>30, -cols=>100, 
 	  -default=>$content, -class=>'form-control')
       ),
-      $q->submit(-class=>'btn btn-default', -value=>'Save')
+      $q->submit(-class=>'btn btn-success', -value=>'Save')
     );
   }
 }
@@ -2183,7 +2207,7 @@ sub DoAdminRobotsTxt {
       $q->textarea(-name=>'robotstxt', -rows=>30, -cols=>100, 
 	-default=>$content, -class=>'form-control')
     ),
-    $q->submit(-class=>'btn btn-default', -value=>'Save')
+    $q->submit(-class=>'btn btn-success', -value=>'Save')
   );
 }
 
@@ -2258,9 +2282,13 @@ sub DoAdminDeleted {
     my $dp = SanitizeFileName(GetParam('force',''));
     unless(GetParam('confirm','no') eq 'yes') {
       # Ask for confirmation
-      print $q->p("Are you sure you want to delete $dp? ".
-	AdminLink('deleted', 'YES', 'force='.$dp, 'confirm=yes')." ".
-	AdminLink('deleted', 'NO'));
+      #print $q->p("Are you sure you want to delete $dp? ".
+	#AdminLink('deleted', 'YES', 'force='.$dp, 'confirm=yes')." ".
+	#AdminLink('deleted', 'NO'));
+      Confirm("Are you sure you want to delete the page \"$dp\"?",
+	AdminURL('deleted', "force=$dp", 'confirm=yes'),
+	AdminURL('deleted')
+      );
     } else {
       # Delete the page
       DoMaintDeletePages($dp);
@@ -2277,7 +2305,9 @@ sub DoAdminDeleted {
     print $q->li($q->a({-href=>$Url.$item}, $item).
       " to be deleted after ".
       (FriendlyTime($f{ts} + $PurgeDeletedPage))[$TimeZone].
-      " (".AdminLink('deleted',"force delete","force=$item").")");
+      " <button type='button' class='btn btn-xs btn-danger' onClick='location.href=\"".
+      AdminURL('deleted', 'force='.$item)."\"'>Delete</button>"
+    );
   }
   print "</ul>";
 }
@@ -2357,6 +2387,15 @@ sub DoAdminDashboard {
   foreach (@DashboardItems) {
     &{$_};
   }
+}
+
+sub Confirm {
+  my ($question, $yes, $no) = @_;
+  print $q->p($question);
+  print '<button type="button" class="btn btn-lg btn-success" onClick="'.
+    "location.href='$yes'\">YES</button>&nbsp;&nbsp;";
+  print '<button type="button" class="btn btn-lg btn-danger" onClick="'.
+    "location.href='$no'\">NO</button>";
 }
 
 sub DoAdmin {
@@ -2621,18 +2660,24 @@ sub DoDiscuss {
     $q->submit(-name=>'whattodo', -value=>'Preview', -class=>'btn btn-primary')
   );
 
-  print '<script language="javascript" type="text/javascript">'.
-    "function ShowHide() {
-	document.getElementById('discuss-help').style.display = (document.getElementById('discuss-help').style.display == 'none') ? 'block' : 'none';
-	document.getElementById('showhidehelp').innerHTML = (document.getElementById('showhidehelp').innerHTML == 'Show markup help') ? 'Hide markup help' : 'Show markup help';
-	return true; }".
-    '</script>';
-  print "<br/><a title=\"Markup help\" id=\"showhidehelp\"".
-    "href=\"#discuss-form\" onclick=\"ShowHide();\">".
-    "Show markup help</a>";
-  print "<br/><div id=\"discuss-help\" style=\"display:none;\">";
+  #print '<script language="javascript" type="text/javascript">'.
+  #  "function ShowHide() {
+	#document.getElementById('discuss-help').style.display = (document.getElementById('discuss-help').style.display == 'none') ? 'block' : 'none';
+	#document.getElementById('showhidehelp').innerHTML = (document.getElementById('showhidehelp').innerHTML == 'Show markup help') ? 'Hide markup help' : 'Show markup help';
+	#return true; }".
+  #  '</script>';
+  #print "<br/><a title=\"Markup help\" id=\"showhidehelp\"".
+  #  "href=\"#discuss-form\" onclick=\"ShowHide();\">".
+  #  "Show markup help</a>";
+  #print "<br/><div id=\"discuss-help\" style=\"display:none;\">";
+  #print $q->button({-data-toggle=>'collapse', -data-target=>'#discuss-help',
+  #  -class=>'btn btn-info'}, 'Show markup help');
+  #print '<br/><button type="button" class="btn btn-xs btn-info" data-toggle="collapse" '.
+  #  'data-target="#discuss-help">Show markup help</button>';
+  #print $q->div({-class=>'collapse', -id=>'discuss-help'}, MarkupHelp());
+  #print '<div id="discuss-help" class="collapse">';
   MarkupHelp();
-  print "</div>";
+  #print "</div>";
 }
 
 sub DoRecentChanges {
@@ -2929,6 +2974,19 @@ sub UnquoteHTML {
   return $q->unescapeHTML($text);
 }
 
+sub HumanReadableSize {
+  my $bytes = shift;
+  my $count = 0;
+  my @un = qw(B KB MB GB TB);
+
+  while ($bytes > 1024) {
+    $bytes = $bytes / 1024;
+    $count++;
+  }
+  $bytes = sprintf "%.2f", $bytes;
+  return $bytes .' '. $un[$count];
+}
+
 sub DoHistory {
   my $author; my $summary; my %f;
   my $topone = " checked";
@@ -2958,8 +3016,10 @@ sub DoHistory {
         Commify($charcount)." without. ";
     }
     print "The total page size (including metadata) is ".
-      Commify((stat("$PageDir/$ShortDir/$Page"))[7])." bytes.";
-    print "</p>";
+      Commify((stat("$PageDir/$ShortDir/$Page"))[7])." bytes (";
+    # Show human readable format
+    print HumanReadableSize((stat("$PageDir/$ShortDir/$Page"))[7]);
+    print ")</p>";
     # If the page is set for deletion, let them know
     if($f{text} =~ m/^DeletedPage\n/) {
       print $q->p($q->em("This page is scheduled to be deleted after ".
@@ -3180,7 +3240,7 @@ sub DoPostingBlockList {
 
 sub DoPostingBannedContent {
   if(IsAdmin()) {
-    StringToFile(GetParam('bannedcontent'), $BannedContent);
+    StringToFile(UnquoteHTML(GetParam('bannedcontent')), $BannedContent);
   }
   ReDirect($Url."?do=admin;page=bannedcontent");
 }
@@ -3476,6 +3536,7 @@ sub HTMLDiff {
     $next = QuoteHTML($next);
     my ($o, $n) = split(/\n---\n/,$next,2);
     s#\n#<br/>#g for ($o,$n);
+    s#^&[lg]t; ##gm for ($o,$n);
     if($o and $n) {
       $return .= "<div class='alert alert-danger'>$o</div><p><strong>to</strong></p>\n".
 	"<div class='alert alert-success'>$n</div><hr/>";
@@ -3690,13 +3751,20 @@ sub CommandLink {
   return $q->a({-href=>$ret, -title=>$title, -rel=>'nofollow'}, $text);
 }
 
-sub AdminLink {
-  my ($pg, $text, @extras) = @_;
+sub AdminURL {
+  my ($pg, @extras) = @_;
   my $ret;
   $ret = $Url . "?do=admin";
   $ret .= ";page=$pg" if $pg;
   $ret .= ";".join(';',@extras) if @extras;
-  return $q->a({-href=>$ret, -rel=>'nofollow'}, $text);
+  print STDERR "$ret\n";
+  return $ret;
+}
+
+sub AdminLink {
+  my ($pg, $text, @extras) = @_;
+  return $q->a({-href=>AdminURL($pg, @extras), -rel=>'nofollow'},
+    $text);
 }
 
 sub DoRequest {
@@ -3764,28 +3832,36 @@ sub DoRequest {
   if(GetParam('do') and $Commands{GetParam('do')}) {
     &{$Commands{GetParam('do')}};
   } else {
+    my $content;
     if(!PageExists($Page)) {
-      print $NewPage;
+      $content = $NewPage;
     } else {
-      my $content;
       %Filec = GetPage($Page, $rev);
       if($rev and !PageExists($Page, $rev)) {
-	print $q->p("That revision of ".$q->a({-href=>"$Url$Page"}, $Page).
-	  " does not exist!");
+	print $q->div({-class=>'alert alert-danger'},
+	  $q->p("That revision of ".$q->a({-href=>"$Url$Page"}, $Page).
+	    " does not exist!"));
       }
       if($Filec{template} == 1) {
-	print $q->p({-style=>"font-style: italic; color: red;"},
-	  "This page is a template, and likely doesn't contain any useful ".
-	  "information.");
+	print $q->div({-class=>'alert alert-info'},
+	  $q->p("This page is a template, and likely doesn't contain any useful ".
+	    "information."));
       }
       if($Filec{text} =~ m/^DeletedPage\n/) {
-	print $q->p($q->em("This page is scheduled to be deleted after ".
-	  $q->strong((FriendlyTime($Filec{ts} + $PurgeDeletedPage))[$TimeZone])));
+	print $q->div({-class=>'alert alert-danger'},
+	  $q->p($q->em("This page is scheduled to be deleted after ".
+	    $q->strong((FriendlyTime($Filec{ts} + $PurgeDeletedPage))[$TimeZone]))));
       }
       if($rev and PageExists($Page, $rev)) {
-	print $q->p({-style=>"font-weight: bold;"}, 
+	print $q->div({-class=>'alert alert-warning'}, $q->p({-style=>"font-weight: bold;"}, 
 	  "You are viewing Revision $Filec{revision} of ".
-	  $q->a({-href=>"$Url$Page", -title=>'View the newest version'}, $Page).$q->hr);
+	  $q->a({-href=>"$Url$Page", -title=>'View the newest version'}, $Page)));
+	if(IsSpecialPage()) {
+	  print $q->div({-class=>'alert alert-danger'},
+	    "This page is registered as a special page, however you are ".
+	    "viewing a previous revision of the page. As such, the ".
+	    "special page function will not be triggered.");
+	}
       }
       if($Filec{text} =~ m/^#FILE /) {
 	print $q->p("This page contains a file:");
@@ -3813,13 +3889,17 @@ sub DoRequest {
 	#my $altsearch = ReplaceSpaces($search);
 	#$content =~ s!($search|$altsearch)!<span style="background: yellow;">$1</span>!gsi;
       #}
-      print $q->div({-class=>'markup-content'},$content);
+      #print $q->div({-class=>'markup-content'},$content);
     }
+    print '<div class="markup-content">'."\n";
+    print $content;
+    DoSpecialPage();
+    print '</div>';
     if($Filec{ts}) {
       $MTime = "Last modified: ".(FriendlyTime($Filec{ts}))[$TimeZone]." by ".
 	$Filec{author} . "<br/>";
     }
-    DoSpecialPage();
+    #DoSpecialPage();
   }
   if($Debug) {
     $DebugMessages = join("<br/>", @Messages);
