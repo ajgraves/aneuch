@@ -985,9 +985,9 @@ sub DoSpecialPage {
   return if GetParam('revision','');
   foreach my $spage (sort keys %SpecialPages) {
     if($Page =~ m/^$spage$/) {
-      print '<div class="markup-content">';
+      #print '<div class="markup-content">';
       &{$SpecialPages{$spage}};
-      print '</div>';
+      #print '</div>';
       return;
     }
   }
