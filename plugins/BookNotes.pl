@@ -27,7 +27,7 @@ sub DoSCBookNote {
   return unless(CanEdit());
   return $q->div({-class=>'panel panel-primary'},
     $q->div({-class=>'panel-heading'},
-      $q->h3({-class=>'panel-title'},'Enter new notes')
+      $q->h3({-class=>'panel-title'},'Enter new book notes')
     ),
     $q->div({-class=>'panel-body'},
       Form('booknote','post','',
@@ -36,7 +36,7 @@ sub DoSCBookNote {
 	  $q->textarea(-name=>'note', -rows=>10, -cols=>100, 
 	    -class=>'form-control')
         ),
-	$q->submit(-class=>'btn btn-default', -value=>'Note it!')
+	$q->submit(-class=>'btn btn-success', -value=>'Note it!')
       )
     )
   );
