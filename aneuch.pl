@@ -341,6 +341,7 @@ sub InitVars {
   if($SpamLogging) {
     RegAdminPage('spamlog', "View spam log", \&DoAdminSpamLog);
   }
+  RegAdminPage('banner', 'Sitewide banner', \&DoAdminBanner);
 
   # Dashboard items
   RegDashboardItem(\&DashboardDatabase);
@@ -358,6 +359,7 @@ sub InitVars {
   RegPostAction('upload', \&DoPostingUpload);		# File uploads
   RegPostAction('robotstxt', \&DoPostingRobotsTxt);	# robots.txt
   RegPostAction('quickedit', \&DoPostingQuickedit);	# Quick edit
+  RegPostAction('banner', \&DoPostingBanner);
 
   # Register raw handlers
   RegRawHandler('download');
@@ -480,8 +482,9 @@ EOF
     }
     print '>';
     print '      <div class="aneuch-content">'.
-      '        <div class="page-header">'.
-      '          <h1>';
+      '        <div class="page-header">';
+    DoBanner();
+    print '          <h1>';
     if(PageExists($Page)) {
       print "<a title=\"Search for references to $SearchPage\" ".
 	"rel=\"nofollow\" href=\"$Url?do=search;search=".
@@ -2031,14 +2034,16 @@ sub DoAdminListVisitors {
       $q->hidden(-name=>'page', -value=>'visitors', -override=>1),
       $q->div({-class=>'input-group'},
 	$q->textfield(-name=>'limit', -size=>40, -value=>$lim, 
-	  -class=>'form-control'),
+	  -class=>'form-control', -placeholder=>'Type filter text here'),
 	$q->span({-class=>'input-group-btn'},
-	  '<button type="submit" class="btn btn-default">Search</button>'
+	  '<button type="submit" class="btn btn-success">Search</button>'
 	)
       );
       #$q->submit(-class=>'btn btn-default', -value=>'Search');
   if($lim) {
-    print " ".AdminLink('visitors',"Remove");
+    #print " ".AdminLink('visitors',"Remove");
+    print " ".'<button type="button" class="btn btn-danger" onClick="'.
+      "location.href='".AdminURL('visitors')."'".'">Remove Filter</button>';
   }
   print "</form>";
   # Display the visitors.log file
@@ -2315,6 +2320,26 @@ sub DoAdminDeleted {
 sub DoAdminSpamLog {
   # Shows the spam log if $SpamLogging is enabled.
 
+}
+
+sub DoAdminBanner {
+  # Settings for a sitewide banner
+  my $content = GetPrefs('Aneuch', 'Banner');
+  my $alert = GetPrefs('Aneuch', 'BannerAlert');
+  if(!$alert) { $alert = 'danger'; }
+  print $q->p('Anything you enter here will be shown site-wide as a banner at'.
+    ' the top of the page. This will allow HTML, so be careful what you enter'.
+    ' here. Clearing this field will disable the banner.');
+  print Form('banner', 'post', '',
+    $q->div({-class=>'form-group'},
+      $q->textarea(-name=>'banner', -rows=>10, -cols=>100,
+        -default=>$content, -class=>'form-control',
+	-placeholder=>'Leave empty to disable the banner'),'<br/>',
+      $q->popup_menu(-name=>'alert', -value=>[qw/success info warning danger/],
+	-default=>$alert, -class=>'form-control')
+    ),
+    $q->submit(-class=>'btn btn-success', -value=>'Save')
+  );
 }
 
 sub DashboardDatabase {
@@ -3259,6 +3284,14 @@ sub DoPostingRobotsTxt {
   ReDirect($Url."?do=admin;page=robotstxt");
 }
 
+sub DoPostingBanner {
+  if(IsAdmin()) {
+    SetPrefs('Aneuch', 'Banner', UnquoteHTML(GetParam('banner')));
+    SetPrefs('Aneuch', 'BannerAlert', GetParam('alert','danger'));
+  }
+  ReDirect(AdminURL('banner'));
+}
+
 sub DoPostingUpload {
   if(GetParam('whattodo') eq "Cancel") {
     ReDirect($Url.GetParam('file'));
@@ -3767,6 +3800,17 @@ sub AdminLink {
     $text);
 }
 
+sub DoBanner {
+  # Sitewide banner?
+  if(Trim(GetPrefs('Aneuch', 'Banner'))) {
+    my $banner = GetPrefs('Aneuch', 'Banner');
+    my $alert = GetPrefs('Aneuch', 'BannerAlert');
+    print $q->div({-class=>"alert alert-$alert"},
+      $banner
+    );
+  }
+}
+
 sub DoRequest {
   # Blocked?
   if(IsBlocked()) {
@@ -3782,7 +3826,8 @@ sub DoRequest {
 
   # Can view?
   unless(CanView()) {
-    ReDirect($Url."?do=admin;page=password");
+    #ReDirect($Url."?do=admin;page=password");
+    ReDirect(AdminURL('password'));
     return;
   }
 
@@ -3828,6 +3873,7 @@ sub DoRequest {
   # Header
   #print Interpolate($Header);
   DoHeader();
+
   # This is where the magic happens
   if(GetParam('do') and $Commands{GetParam('do')}) {
     &{$Commands{GetParam('do')}};
