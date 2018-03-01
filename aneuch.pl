@@ -52,7 +52,7 @@ our ($DataDir, $SiteName, $Page, $ShortPage, @Passwords, $PageDir, $ArchiveDir,
      $PageVisitFile, $q, $Hostname, @RawHandlers, $UploadsAllowed, 
      @UploadTypes, %ShortCodes, %HTTPHeader, %CommandsDisplay,
      $PurgeDeletedPage, $VERSIONID, @DashboardItems, $CookieTime, $SpamLogging, 
-     %Prefs, $HasReadPrefs);
+     %Prefs, $HasReadPrefs, $SpamLogFile);
 
 my %srvr = (
   80 => 'http://',	443 => 'https://',
@@ -339,7 +339,7 @@ sub InitVars {
   RegAdminPage('plugins', "Plugin manager", \&DoAdminPlugins);
   RegAdminPage('deleted', "List pending deleted pages", \&DoAdminDeleted);
   if($SpamLogging) {
-    RegAdminPage('spamlog', "View spam log", \&DoAdminSpamLog);
+    RegAdminPage('spamlog', "Display spam log", \&DoAdminSpamLog);
   }
   RegAdminPage('banner', 'Sitewide banner', \&DoAdminBanner);
 
@@ -394,6 +394,13 @@ sub DoPostInit {
     foreach my $SubToRun (@PostInitSubs) {
       &{$SubToRun};
     }
+  }
+
+  # Is this an admin page? Let's set the title appropriately.
+  #  This needs to be done in DoPostInit to account for any
+  #  admin pages registered by plugins.
+  if(GetParam('do') eq 'admin') {
+    $PageName = $AdminList{$Page} || 'Aneuch Administration';
   }
 }
 
@@ -1107,7 +1114,7 @@ sub GetPrefs {
   # Are we looking for the available namespace? If so, return the list.
   if(($name eq '*') or ($name eq '')) {
     my @allkeys = keys %Prefs;
-    my @ns = grep { $_ =~ /$prefix\./ } @allkeys;
+    my @ns = grep { $_ =~ /^$prefix\./ } @allkeys;
     # Remove the prefix from the namespace list.
     s/^$prefix\.// for @ns;
     return @ns;
@@ -1201,6 +1208,7 @@ sub InitDirs {
   $BlockedList = "$DataDir/banned";
   $BannedContent = "$DataDir/bannedcontent";
   $PageVisitFile = "$DataDir/visitcount";
+  $SpamLogFile = "$DataDir/spam.log";
 }
 
 sub LoadPlugins {
@@ -2253,14 +2261,8 @@ sub DoAdminPlugins {
   #print "<ul>";
   print '<div class="list-group">';
   foreach my $plugin (sort @alist) {
-    #print $q->li(AdminLink('plugins',$_,"plugin=$_",'act=disable').
-    #  ' - '.$Plugins{$_});
-    #print AdminLink('plugins',
-    #  '<h4 class="list-group-item-heading">'.$plugin.'</h4>'.
-    #  '<p class="list-group-item-text">'.$Plugins{$plugin}.'</p>',
-    #  "plugin=$plugin",'act=disable');
-    print $q->a({-href=>$Url.'?do=admin;page=plugins;plugin='.$plugin.
-      ';act=disable', -class=>'list-group-item', 
+    print $q->a({-href=>AdminURL('plugins', 'plugin='.$plugin, 'act=disable'),
+      -class=>'list-group-item',
       -title=>'Click to disable '.$plugin},
       '<h4 class="list-group-item-heading">'.$plugin.'</h4>'.
       '<p class="list-group-item-text">'.$Plugins{$plugin}.'</p>');
@@ -2271,9 +2273,8 @@ sub DoAdminPlugins {
   #print "<ul>";
   print '<div class="list-group">';
   foreach my $plugin (sort @dlist) {
-    #print $q->li(AdminLink('plugins',$_,"plugin=$_",'act=enable'));
-    print $q->a({-href=>$Url.'?do=admin;page=plugins;plugin='.$plugin.
-      ';act=enable', -class=>'list-group-item', 
+    print $q->a({-href=>AdminURL('plugins', 'plugin='.$plugin, 'act=enable'),
+      -class=>'list-group-item',
       -title=>'Click to enable '.$plugin},
       '<h4 class="list-group-item-heading">'.$plugin.'</h4>');
   }
@@ -2320,13 +2321,39 @@ sub DoAdminDeleted {
 sub DoAdminSpamLog {
   # Shows the spam log if $SpamLogging is enabled.
 
+  my @SpamLog = FileToArray($SpamLogFile);
+  @SpamLog = reverse(@SpamLog);
+
+  my $curdate; # Current date for splitting entries
+  print "<h2>Spam log entries (newest to oldest, ".@SpamLog." entries)</h2>".
+    "<p style=\"text-align: left;\">";
+  foreach my $entry (@SpamLog) {
+    my ($ip,$ts,$pg,$do,$revision,$status,$user,$event,$data) = split(/\t/,$entry);
+    $pg = ReplaceUnderscores($pg);
+    my $date = YMD($ts);
+    my $time = HMS($ts);
+    if($curdate ne $date) {
+      print "</p><h2>$date</h2><p style=\"text-align: left;\">";
+      $curdate = $date;
+    }
+    print "$time, user <strong>";
+    print QuoteHTML($ip)."</strong> (<strong>".QuoteHTML($user)."</strong>)";
+    print " spammed page <strong>".QuoteHTML($pg)."</strong>";
+    if($revision) { print " (revision <strong>$revision</strong>)"; }
+    if($status) {
+      print " (<em>$status</em>)";
+    }
+    print " with explanation <strong>".QuoteHTML($event).': '.QuoteHTML($data).
+      "</strong><br/>";
+  }
+  print "</p>";
 }
 
 sub DoAdminBanner {
   # Settings for a sitewide banner
   my $content = GetPrefs('Aneuch', 'Banner');
   my $alert = GetPrefs('Aneuch', 'BannerAlert');
-  if(!$alert) { $alert = 'danger'; }
+  if(!$alert) { $alert = 'none'; }
   print $q->p('Anything you enter here will be shown site-wide as a banner at'.
     ' the top of the page. This will allow HTML, so be careful what you enter'.
     ' here. Clearing this field will disable the banner.');
@@ -2335,7 +2362,7 @@ sub DoAdminBanner {
       $q->textarea(-name=>'banner', -rows=>10, -cols=>100,
         -default=>$content, -class=>'form-control',
 	-placeholder=>'Leave empty to disable the banner'),'<br/>',
-      $q->popup_menu(-name=>'alert', -value=>[qw/success info warning danger/],
+      $q->popup_menu(-name=>'alert', -value=>[qw/none success info warning danger/],
 	-default=>$alert, -class=>'form-control')
     ),
     $q->submit(-class=>'btn btn-success', -value=>'Save')
@@ -2358,6 +2385,12 @@ sub DashboardDatabase {
     ' and '.
     AdminLink('templates',Commify(scalar(ListAllTemplates()))." templates")."."
   );
+  my @locks = glob("$TempDir/*.lock");
+  if(@locks) {
+    print $q->p('There are '.
+      AdminLink('rmlocks',Commify(scalar(@locks)).' page(s) locked').
+      ' for editing currently.');
+  }
   print Form('quickedit', 'post', 'form-inline',
     $q->div({-class=>'input-group'},
       #$q->label({-for=>'thepage'},"Quick edit page:"),
@@ -2429,11 +2462,8 @@ sub DoAdmin {
     $Page = (IsAdmin()) ? 'dashboard' : 'password';
   }
 
-  my $adminlink = "$Url?do=admin;page=";
-
   if(IsAdmin()) {
   print '<div class="row"><div class="col-sm-3">';
-  #print '<div class="list-group">';
   print '<div class="sidebar-nav">';
   print '<div class="navbar navbar-default" role="navigation">';
   print <<EOF;
@@ -2451,34 +2481,22 @@ sub DoAdmin {
 EOF
   if($Page eq 'password') {
     print $q->li({class=>'active'},AdminLink('password','Authenticate'));
-    #print $q->a({-class=>'list-group-item active', -href=>$adminlink.
-    #  'password'},"Authenticate");
   } else {
     print $q->li(AdminLink('password','Authenticate')) unless IsAdmin();
-    #print $q->a({-class=>'list-group-item', -href=>$adminlink.'password'},
-    #  'Authenticate') unless IsAdmin();
   }
   if(IsAdmin()) {
     if($Page eq 'dashboard') {
       print $q->li({class=>'active'},AdminLink('dashboard','Dashboard'));
-      #print $q->a({-class=>'list-group-item active', -href=>$adminlink.
-	#'dashboard'}, 'Dashboard');
     } else {
       print $q->li(AdminLink('dashboard','Dashboard'));
-      #print $q->a({-class=>'list-group-item', -href=>$adminlink.'dashboard'},
-	#'Dashboard');
     }
     my %al = reverse %AdminList;
     foreach my $listitem (sort keys %al) {
       next if $listitem eq '';
       if($Page eq $al{$listitem}) {
 	print $q->li({class=>'active'},AdminLink($al{$listitem},$listitem));
-	#print $q->a({-class=>'list-group-item active', -href=>$adminlink.
-	#  $al{$listitem}}, $listitem);
       } else {
 	print $q->li(AdminLink($al{$listitem},$listitem));
-	#print $q->a({-class=>'list-group-item', -href=>$adminlink.
-	#  $al{$listitem}}, $listitem);
       }
     }
   }
@@ -2595,7 +2613,7 @@ sub WriteSpamLog {
     "\t$PageRevision\t$HTTPStatus\t$UserName\t$Event\t$Data";
 
   # Now save it to the log
-  AppendStringToFile($LogEntry, "$DataDir/spam.log");
+  AppendStringToFile($LogEntry, $SpamLogFile);
 }
 
 sub PassesSpamCheck {
@@ -3093,14 +3111,26 @@ sub DoHistory {
 	if($topone) { $topone = ''; }
 	print "<td>".HM($f{ts})." ";
 	if(CanEdit()) {
-	  print "<input type=\"button\" onClick=\"location.href='$Url?do=".
-	  "edit;page=$Page;revision=$f{revision};summary=".
-	  "Revert to Revision ".$f{revision}." (".
-	  (FriendlyTime($f{ts}))[$TimeZone].")'\" ".
-	  "value=\"Revert\" class=\"btn btn-xs btn-warning\"> ".
-	  "<input type=\"button\" onClick=\"location.href='$Url?do=".
-	  "rmrev;page=$Page;revision=$f{revision}'\" value=\"Delete\" ".
-	  'class="btn btn-xs btn-danger"> '.
+	  #print "<input type=\"button\" onClick=\"location.href='$Url?do=".
+	  #"edit;page=$Page;revision=$f{revision};summary=".
+	  #"Revert to Revision ".$f{revision}." (".
+	  #(FriendlyTime($f{ts}))[$TimeZone].")'\" ".
+	  #"value=\"Revert\" class=\"btn btn-xs btn-warning\"> ".
+	  #"<input type=\"button\" onClick=\"location.href='$Url?do=".
+	  #"rmrev;page=$Page;revision=$f{revision}'\" value=\"Delete\" ".
+	  #'class="btn btn-xs btn-danger"> '.
+	  print "<input type=\"button\" onClick=\"location.href='".
+	    CommandURL('edit', $Page, 'revision='.$f{revision},
+	      'summary=Revert to Revision '.$f{revision}.' ('.
+	      (FriendlyTime($f{ts}))[$TimeZone].')')."'\" value=\"Revert\" ".
+	    'class="btn btn-xs btn-warning"> '.
+	  "<input type=\"button\" onClick=\"location.href='".
+	  #  CommandURL('edit', $Page, 'revision='.$f{revision},
+	  #    'text=DeletedPage','summary=Marking revision for deletion','clear=1').
+	  #  "'\" value=\"Delete\" ".
+	  #  'class="btn btn-xs btn-danger"> '.
+	    CommandURL('rmrev', $Page, 'revision='.$f{revision})."'\" ".
+	    'value="Delete" class="btn btn-xs btn-danger"> '.
 	  CommandLink('',$Page,"Revision $f{revision}",
 	    "View revision $f{revision}","revision=$f{revision}");
 	}
@@ -3165,7 +3195,7 @@ sub DoPostingLogin {
   # UnquoteHTML() needs to be called for password, otherwise special
   #  characters will cause problems.
   SetCookie(GetParam('user'), UnquoteHTML(GetParam('pass')));
-  ReDirect($Url."?do=admin");
+  ReDirect(AdminURL());
 }
 
 sub DoPostingEditing {
@@ -3260,28 +3290,28 @@ sub DoPostingBlockList {
   if(IsAdmin()) {
     StringToFile(GetParam('blocklist'), $BlockedList);
   }
-  ReDirect($Url."?do=admin;page=block");
+  ReDirect(AdminURL('block'));
 }
 
 sub DoPostingBannedContent {
   if(IsAdmin()) {
     StringToFile(UnquoteHTML(GetParam('bannedcontent')), $BannedContent);
   }
-  ReDirect($Url."?do=admin;page=bannedcontent");
+  ReDirect(AdminURL('bannedcontent'));
 }
 
 sub DoPostingCSS {
   if(IsAdmin()) {
     StringToFile(GetParam('css'), "$DataDir/style.css");
   }
-  ReDirect($Url."?do=admin;page=css");
+  ReDirect(AdminURL('css'));
 }
 
 sub DoPostingRobotsTxt {
   if(IsAdmin()) {
     StringToFile(GetParam('robotstxt'), "$DataDir/robots.txt");
   }
-  ReDirect($Url."?do=admin;page=robotstxt");
+  ReDirect(AdminURL('robotstxt'));
 }
 
 sub DoPostingBanner {
@@ -3772,8 +3802,8 @@ sub IsDiscussionPage {
   }
 }
 
-sub CommandLink {
-  my ($do, $pg, $text, $title, @extras) = @_;
+sub CommandURL {
+  my ($do, $pg, @extras) = @_;
   my $ret;
   $ret = $Url;
   if($pg) { $ret .= $pg; }
@@ -3781,7 +3811,13 @@ sub CommandLink {
   $ret .= "do=$do" if $do;
   if($do ne '' and scalar(@extras) > 0) { $ret .= ";"; }
   $ret .= join(';',@extras) if @extras;
-  return $q->a({-href=>$ret, -title=>$title, -rel=>'nofollow'}, $text);
+  return $ret;
+}
+
+sub CommandLink {
+  my ($do, $pg, $text, $title, @extras) = @_;
+  return $q->a({-href=>CommandURL($do, $pg, @extras),
+    -title=>$title, -rel=>'nofollow'}, $text);
 }
 
 sub AdminURL {
@@ -3790,7 +3826,6 @@ sub AdminURL {
   $ret = $Url . "?do=admin";
   $ret .= ";page=$pg" if $pg;
   $ret .= ";".join(';',@extras) if @extras;
-  print STDERR "$ret\n";
   return $ret;
 }
 
@@ -3804,10 +3839,12 @@ sub DoBanner {
   # Sitewide banner?
   if(Trim(GetPrefs('Aneuch', 'Banner'))) {
     my $banner = GetPrefs('Aneuch', 'Banner');
-    my $alert = GetPrefs('Aneuch', 'BannerAlert');
-    print $q->div({-class=>"alert alert-$alert"},
-      $banner
-    );
+    my $alert = GetPrefs('Aneuch', 'BannerAlert') || 'none';
+    my $class = 'alert';
+    if ($alert ne 'none') {
+      $class .= ' alert-'.$alert;
+    }
+    print $q->div({-class=>$class}, $banner);
   }
 }
 
@@ -3826,7 +3863,6 @@ sub DoRequest {
 
   # Can view?
   unless(CanView()) {
-    #ReDirect($Url."?do=admin;page=password");
     ReDirect(AdminURL('password'));
     return;
   }
