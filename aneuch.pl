@@ -325,7 +325,6 @@ sub InitVars {
   RegAdminPage('reindex', 'Rebuild page index', \&DoAdminReIndex);
   RegAdminPage('rmlocks', 'Force delete page locks', \&DoAdminRemoveLocks);
   RegAdminPage('visitors', 'Display visitor log', \&DoAdminListVisitors);
-  RegAdminPage('clearvisits', 'Clear visitor log', \&DoAdminClearVisits);
   RegAdminPage('lock',
     (-f "$DataDir/lock") ? 'Unlock the site' : 'Lock the site', \&DoAdminLock);
   RegAdminPage('block', 'Block users', \&DoAdminBlock);
@@ -562,6 +561,11 @@ print <<EOF;
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
     <!-- Include all compiled plugins (below), or include individual files as needed -->
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js" integrity="sha384-0mSbJDEHialfmuBBQP6A4Qrprq5OVfW37PRR3j5ELqxss1yVqOtnepnHVP9aJ7xS" crossorigin="anonymous"></script>
+    <script>
+	\$(document).ready(function(){
+		\$('[data-toggle="tooltip"]').tooltip();
+	});
+    </script>
   </body>
 </html>
 EOF
@@ -1508,11 +1512,14 @@ sub DoEdit {
     #$q->div({-class=>'row'},
     #  $q->div({-class=>'col-md-12'},
 	$q->checkbox(-name=>'template', -checked=>$template, -value=>'1',
-	  -label=>'Is this page a template?',
+	  -label=>'This page is a template',
 	  -title=>'Check this to save this page as a template',
-	  -class=>'form-control')
+	  -class=>'form-control', -id=>'IsTemplate'),
 	#)
       #)
+      '<span class="glyphicon glyphicon-info-sign" data-toggle="tooltip" '.
+	'title="Checking this box makes this page a template, which can then '.
+	'be used as the basis for new pages."></span>'
     );
 
   if($canedit) {
@@ -2011,27 +2018,26 @@ sub DoAdminRemoveLocks {
   print "Removed the following locks:<br/>".join("<br/>",@files);
 }
 
-sub DoAdminClearVisits {
-  # Clears out $VisitorLog after confirming (too many accidental deletes)
-  if(GetParam('confirm','no') eq "yes") {
-    if(unlink $VisitorLog) {
-      print "Log file successfully cleared.";
-    } else {
-      print "Error while deleting visitors.log: $!";
-    }
-  } else {
-    #print "<p>Are you sure you want to clear the visitor log? ".
-    #  "This cannot be undone.</p>";
-    #print $q->p(AdminLink('clearvisits', "YES", 'confirm=yes')."&nbsp;&nbsp;".
-    #  $q->a({-href=>"javascript:history.go(-1)"},"NO"));
-    Confirm('Are you sure you want to clear the visitor log? This cannot be undone.',
-      AdminURL('clearvisits', 'confirm=yes'),
-      AdminURL('clearvisits')
-    );
-  }
-}
-
 sub DoAdminListVisitors {
+  # Are we clearing the log?
+  if(GetParam('clearlog','no') eq "yes") {
+    # We're clearing. Have we confirmed?
+    if(GetParam('confirm','no') eq "yes") {
+      if(unlink $VisitorLog) {
+	print $q->p("Visitor log successfully cleared.");
+      } else {
+	print $q->p("Error while deleting visitors.log: $!");
+      }
+      print AdminLink('visitors', "Return to the visitor log");
+    } else {
+      Confirm('Are you sure you want to clear the visitor log? This cannot be undone.',
+	AdminURL('visitors', 'clearlog=yes', 'confirm=yes'),
+	AdminURL('visitors')
+      );
+    }
+    return;
+  }
+
   my $lim;
   # If we're getting 'limit='... (to limit by IP)
   if(GetParam('limit',0)) {
@@ -2050,9 +2056,11 @@ sub DoAdminListVisitors {
       #$q->submit(-class=>'btn btn-default', -value=>'Search');
   if($lim) {
     #print " ".AdminLink('visitors',"Remove");
-    print " ".'<button type="button" class="btn btn-danger" onClick="'.
+    print " ".'<button type="button" class="btn btn-warning" onClick="'.
       "location.href='".AdminURL('visitors')."'".'">Remove Filter</button>';
   }
+  print " ".'<button type="button" class="btn btn-danger" onClick="'.
+    "location.href='".AdminURL('visitors','clearlog=yes')."'".'">Clear Log</button>';
   print "</form>";
   # Display the visitors.log file
   my @lf = FileToArray($VisitorLog);
@@ -3302,7 +3310,7 @@ sub DoPostingBannedContent {
 
 sub DoPostingCSS {
   if(IsAdmin()) {
-    StringToFile(GetParam('css'), "$DataDir/style.css");
+    StringToFile(UnquoteHTML(GetParam('css')), "$DataDir/style.css");
   }
   ReDirect(AdminURL('css'));
 }
@@ -4092,6 +4100,21 @@ body {
 
 img {
   padding: 10px;
+}
+
+.page-header h1 {
+  font-size: 24px;
+}
+
+.navbar-default .navbar-nav>.active>a, .navbar-default .navbar-nav>.open>a {
+  background-image: linear-gradient(to bottom,#337ab7 0,#265a88 100%);
+  /*background-color: #265a88 !important;*/
+  color: #fff;
+}
+
+.navbar-default .navbar-nav>.active>a, .navbar-default .navbar-nav>.active>a:focus, .navbar-default .navbar-nav>.active>a:hover {
+  background-color: none !important;
+  color: #fff;
 }
 
 @media print {
