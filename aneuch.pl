@@ -2050,16 +2050,18 @@ sub DoAdminListVisitors {
 	$q->textfield(-name=>'limit', -size=>40, -value=>$lim, 
 	  -class=>'form-control', -placeholder=>'Type filter text here'),
 	$q->span({-class=>'input-group-btn'},
-	  '<button type="submit" class="btn btn-success">Search</button>'
+	  '<button type="submit" class="btn btn-success">Search</button>'.
+	  ($lim ? '<button type="button" class="btn btn-warning" onClick="'.
+	    "location.href='".AdminURL('visitors')."'".'">Remove Filter</button>' : '')
 	)
       );
       #$q->submit(-class=>'btn btn-default', -value=>'Search');
-  if($lim) {
+  #if($lim) {
     #print " ".AdminLink('visitors',"Remove");
-    print " ".'<button type="button" class="btn btn-warning" onClick="'.
-      "location.href='".AdminURL('visitors')."'".'">Remove Filter</button>';
-  }
-  print " ".'<button type="button" class="btn btn-danger" onClick="'.
+    #print " ".'<button type="button" class="btn btn-warning" onClick="'.
+    #  "location.href='".AdminURL('visitors')."'".'">Remove Filter</button>';
+  #}
+  print "&nbsp;&nbsp;".'<button type="button" class="btn btn-danger" onClick="'.
     "location.href='".AdminURL('visitors','clearlog=yes')."'".'">Clear Log</button>';
   print "</form>";
   # Display the visitors.log file
