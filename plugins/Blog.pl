@@ -54,7 +54,7 @@ sub DoBlogForm {
       $q->textfield(-class=>'form-control', -name=>'title', -size=>'40',
         -placeholder=>'Enter blog title'),
       $q->span({-class=>'input-group-btn'},
-        '<button type="submit" class="btn btn-default">New entry</button>')
+        '<button type="submit" class="btn btn-primary">New entry</button>')
     )
   );
 }
