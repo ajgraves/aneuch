@@ -1099,7 +1099,7 @@ sub RegDashboardItem {
 sub GetParam {
   my ($ParamToGet, $Default) = @_;
   $Default = 0 unless defined $Default;
-  my $result = QuoteHTML($q->param($ParamToGet));
+  my $result = QuoteHTML(scalar $q->param($ParamToGet));
   # NOTE: You now have to unquote anything that should have HTML
   return (defined $result) ? $result : $Default;
 }
